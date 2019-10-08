@@ -16,6 +16,22 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
     IMUFactor(IntegrationBase* _pre_integration):pre_integration(_pre_integration)
     {
     }
+
+    /*
+     * here, this function conpute the residuals between (the difference of ith and jth state) and the corrected delta value, use the covariance 
+     * of the object pre_integration to weight the residual. If the pointer to the jacobians is not NULL, compute the derivatives of delta
+     * states about state i and state j, then return true
+     * 
+     * the parameter parameters contains the ith and jth P, Q, V, Ba, Bg, let the object pre_integration to compute 
+     * the residuals between (the difference of ith and jth state) and the corrected delta value, instead of just 
+     * compute the residual, take the covariance of pre_integration into consideration to weight the residual. 
+     * I think jacobians[0] represents the derivatives of delta states about pose i, jacobians[1] represents
+     * the derivatives of delta states about velocity and bias of i, jacobians[2] represents the derivatives
+     * of delta states about pose j, jacobians[3] represents the derivatives of delta_states about velocity
+     * and bias of j
+     * the equations of the jacobian can be found on www.jintiankansha.me/t/58mvLImD9A corresponds to
+     * equations 21,22,23,24 on that website
+     */
     virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
     {
 
@@ -58,13 +74,27 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
 #endif
 
         Eigen::Map<Eigen::Matrix<double, 15, 1>> residual(residuals);
+        // compute the residuals between (the difference of ith and jth state) and the corrected delta value
         residual = pre_integration->evaluate(Pi, Qi, Vi, Bai, Bgi,
                                             Pj, Qj, Vj, Baj, Bgj);
 
+        /*
+         * LLT conduct a standard Cholesky decomposition (LLT) of a matrix and associated features
+         * This class performs a LL^T Cholesky decomposition of a symmetric, positive definite matrix A such that A = LL^*=U^*U, where
+         * L is lower triangular
+         * Cholesky decomposition are not rank-revealing. This LLT decomposition is only stable on positive definite matrices, use LDLT instead 
+         * for the semidefinite case. Also, do not use a Cholesky decomposition to determine whether a system of equations has a solution
+         */
         Eigen::Matrix<double, 15, 15> sqrt_info = Eigen::LLT<Eigen::Matrix<double, 15, 15>>(pre_integration->covariance.inverse()).matrixL().transpose();
         //sqrt_info.setIdentity();
+        // instead of just compute the residual between (the difference of ith and jth state) and the corrected delta value, here this class take 
+        // the covariance of the pre_integration into consideration
         residual = sqrt_info * residual;
 
+        /*
+         * if jacobian is NULL, the usr is only expected to compute the residuals
+         * if jacobians[i] is NULL, this is the case when the corresponding parameter block is marked constant
+         */
         if (jacobians)
         {
             double sum_dt = pre_integration->sum_dt;
@@ -84,6 +114,7 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
 ///                ROS_BREAK();
             }
 
+            // I think here 7 represents the demension of position and orientation, 9 means the dimension of speed, gyr_bias and acc_bias
             if (jacobians[0])
             {
                 Eigen::Map<Eigen::Matrix<double, 15, 7, Eigen::RowMajor>> jacobian_pose_i(jacobians[0]);

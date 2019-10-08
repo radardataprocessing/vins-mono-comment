@@ -165,6 +165,11 @@ class IntegrationBase
      
     }
 
+    /*
+     * get the derivatives of ba, bg aboud p, q and v from the jacobian matrix, get dba as the difference between Bai and linearized_ba, get dbg as the difference between
+     * Bgi and linearized_bg. Correct delta_p, delta_q, delta_v using the dericatives and dba, dbg. compute the residuals between (the difference of ith and jth state) and
+     * the corrected delta value
+     */
     Eigen::Matrix<double, 15, 1> evaluate(const Eigen::Vector3d &Pi, const Eigen::Quaterniond &Qi, const Eigen::Vector3d &Vi, const Eigen::Vector3d &Bai, const Eigen::Vector3d &Bgi,
                                           const Eigen::Vector3d &Pj, const Eigen::Quaterniond &Qj, const Eigen::Vector3d &Vj, const Eigen::Vector3d &Baj, const Eigen::Vector3d &Bgj)
     {

@@ -76,6 +76,7 @@ MarginalizationInfo::~MarginalizationInfo()
 {
     //ROS_WARN("release marginlizationinfo");
     
+    // std::unordered_map<long, double *> parameter_block_data;
     for (auto it = parameter_block_data.begin(); it != parameter_block_data.end(); ++it)
         delete it->second;
 
@@ -120,7 +121,7 @@ void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block
 }
 
 /*
- * 
+ * put the data in parameter_blocks of every ResidualBlockInfo into parameter_block_data
  */
 void MarginalizationInfo::preMarginalize()
 {
@@ -135,9 +136,11 @@ void MarginalizationInfo::preMarginalize()
             long addr = reinterpret_cast<long>(it->parameter_blocks[i]);
             int size = block_sizes[i];
             // std::unordered_map<long, double *> parameter_block_data;
+            // std::vector<double *> parameter_blocks;
             if (parameter_block_data.find(addr) == parameter_block_data.end())
             {
                 double *data = new double[size];
+                // memcpy copy from the second param to the first param
                 memcpy(data, it->parameter_blocks[i], sizeof(double) * size);
                 parameter_block_data[addr] = data;
             }
@@ -164,6 +167,9 @@ int MarginalizationInfo::globalSize(int size) const
  *     std::unordered_map<long, int> parameter_block_size; //global size
  *     std::unordered_map<long, int> parameter_block_idx; //local size
  * };
+ */
+/*
+ * 
  */
 void* ThreadsConstructA(void* threadsstruct)
 {
@@ -222,9 +228,9 @@ void MarginalizationInfo::marginalize()
         pos += localSize(parameter_block_size[it.first]);
     }
 
-    m = pos;
+    m = pos;// the num of params tobe marg
 
-    for (const auto &it : parameter_block_size)
+    for (const auto &it : parameter_block_size)// if parameter_block_size has addr that parameter_block_idx does not have
     {
         if (parameter_block_idx.find(it.first) == parameter_block_idx.end())// if we can not find this it in parameter_block_idx
         {
@@ -232,13 +238,14 @@ void MarginalizationInfo::marginalize()
             pos += localSize(it.second);
         }
     }
+    // the elements that parameter_block_size have but parameter_block_idx does not have means the elements tobe kept
 
-    n = pos - m;
+    n = pos - m;// the num of params tobe kept
 
     //ROS_DEBUG("marginalization, pos: %d, m: %d, n: %d, size: %d", pos, m, n, (int)parameter_block_idx.size());
 
     TicToc t_summing;
-    Eigen::MatrixXd A(pos, pos);
+    Eigen::MatrixXd A(pos, pos);// pos means the sum of sizes of all params
     Eigen::VectorXd b(pos);
     A.setZero();
     b.setZero();
@@ -275,6 +282,10 @@ void MarginalizationInfo::marginalize()
     pthread_t tids[NUM_THREADS];
     ThreadsStruct threadsstruct[NUM_THREADS];
     int i = 0;
+    /*
+     * devide the factors into NUM_THREADS parts and push them into sub_factors of the threadsstruct, so that we can solve A
+     * and b in multi threads
+     */
     for (auto it : factors)// devide the factors into NUM_THREADS parts and push them into sub_factors of the threadsstruct
     {
         threadsstruct[i].sub_factors.push_back(it);

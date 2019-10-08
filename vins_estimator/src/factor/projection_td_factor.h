@@ -7,6 +7,14 @@
 #include "../utility/tic_toc.h"
 #include "../parameters.h"
 
+/*
+ * 2 means the residual has 2 dimension
+ * the first 7 means the ith pose
+ * the second 7 means the jth pose
+ * the third 7 means the transform between imu and camera
+ * the first 1 means the depth of the point
+ * the second 1 means the time delay
+ */
 class ProjectionTdFactor : public ceres::SizedCostFunction<2, 7, 7, 7, 1, 1>
 {
   public:
