@@ -179,8 +179,8 @@ void* ThreadsConstructA(void* threadsstruct)
         // it is a ResidualBlockInfo* object
         for (int i = 0; i < static_cast<int>(it->parameter_blocks.size()); i++)// for every parameter_block corresponding to the residual block it
         {
-            int idx_i = p->parameter_block_idx[reinterpret_cast<long>(it->parameter_blocks[i])];// local size
-            int size_i = p->parameter_block_size[reinterpret_cast<long>(it->parameter_blocks[i])];// global size
+            int idx_i = p->parameter_block_idx[reinterpret_cast<long>(it->parameter_blocks[i])];// local size  index
+            int size_i = p->parameter_block_size[reinterpret_cast<long>(it->parameter_blocks[i])];// global size   size
             if (size_i == 7)
                 size_i = 6;
             Eigen::MatrixXd jacobian_i = it->jacobians[i].leftCols(size_i);
@@ -218,6 +218,7 @@ void* ThreadsConstructA(void* threadsstruct)
  * | 0   pc-pb.transpose()*pa.inverse()*pb |*| delta_xb | = | gb-pb.transpose()*pa.inverse()*ga |   ---------------------(3)
  * observe the second row of the (3) equation, we can get
  * (pc-pb.transpose()*pa.inverse()*pb)*delta_xb=gb-pb.transpose()*pa.inverse()*ga
+ * here, we can see that delta_xa has been marginalized
  */
 void MarginalizationInfo::marginalize()
 {
@@ -225,11 +226,15 @@ void MarginalizationInfo::marginalize()
     for (auto &it : parameter_block_idx)//std::unordered_map<long, int> parameter_block_idx; //local size
     {
         it.second = pos;
+        // localSize is a function, if its input is 7, return 6; if its input is other number, return the input
         pos += localSize(parameter_block_size[it.first]);
     }
 
+    // the parameters to be marginalized has smaller index, 
     m = pos;// the num of params tobe marg
 
+    // from here, we can infer that parameter_block_size has more elements than parameter_block_idx
+    // then use the size in parameter_block_size to compute index and put the index into parameter_block_idx
     for (const auto &it : parameter_block_size)// if parameter_block_size has addr that parameter_block_idx does not have
     {
         if (parameter_block_idx.find(it.first) == parameter_block_idx.end())// if we can not find this it in parameter_block_idx
@@ -240,6 +245,7 @@ void MarginalizationInfo::marginalize()
     }
     // the elements that parameter_block_size have but parameter_block_idx does not have means the elements tobe kept
 
+    // the parameters to be kept has bigger index than the parameters tobe marginalized
     n = pos - m;// the num of params tobe kept
 
     //ROS_DEBUG("marginalization, pos: %d, m: %d, n: %d, size: %d", pos, m, n, (int)parameter_block_idx.size());
@@ -292,6 +298,8 @@ void MarginalizationInfo::marginalize()
         i++;
         i = i % NUM_THREADS;
     }
+    // Constructs threads using the array of ThreadStruct whose size is NUM_THREADS
+    // every thread will use its subfactors to fill some blocks of matrix A and b, then we can sum them up to get the whole matrix
     for (int i = 0; i < NUM_THREADS; i++)
     {
         TicToc zero_matrix;
@@ -299,6 +307,7 @@ void MarginalizationInfo::marginalize()
         threadsstruct[i].b = Eigen::VectorXd::Zero(pos);
         threadsstruct[i].parameter_block_size = parameter_block_size;
         threadsstruct[i].parameter_block_idx = parameter_block_idx;
+        // in this case, do we just compute the cross-covariance of parameters that influence the same ResidualBlockInfo
         int ret = pthread_create( &tids[i], NULL, ThreadsConstructA ,(void*)&(threadsstruct[i]));
         if (ret != 0)
         {
@@ -319,9 +328,18 @@ void MarginalizationInfo::marginalize()
      * SelfAdjointEigenSolver computes eigenvalues and eigenvectors of selfadjoint matrices
      * A is selfadjoint if it equals its adjoint. For real matrices, this means that the matrix is symmetric: it equals its transpose. This class
      * computes the eigenvalues and eigenvectors of a selfadjoint matrix. These are the scalars lambda and vectors v such that A*v=lambda*v. The
-     * eigenvalues of a selfadjoint matrix are always real. If D is a diagonal matrix with the eigenvaslues on the diagonal, and V is a matrix with 
+     * eigenvalues of a selfadjoint matrix are always real. If D is a diagonal matrix with the eigenvalues on the diagonal, and V is a matrix with 
      * the eigenvectors as its columns, then A=VDV.inverse()(for selfadjoint matrices, the matrix V is always invertible). This is called eigendecomposition
      * 
+     * if A = V*D*V.inverse()   B = V*D.inverse()*V.inverse()
+     * A*B = V*D*V.inverse()*V*D.inverse()*V.inverse()
+     *     = V*D*(V.inverse()*V)*D.inverse()*V.inverse()
+     *     = V*D*D.inverse()*V.inverse()
+     *     = V*(D*D.inverse())*V.inverse()
+     *     = V*V.inverse()
+     *     = I
+     * B*A = I
+     * B = A.inverse()
      */
     //TODO
     Eigen::MatrixXd Amm = 0.5 * (A.block(0, 0, m, m) + A.block(0, 0, m, m).transpose());
@@ -329,6 +347,10 @@ void MarginalizationInfo::marginalize()
 
     //ROS_ASSERT_MSG(saes.eigenvalues().minCoeff() >= -1e-4, "min eigenvalue %f", saes.eigenvalues().minCoeff());
 
+    // array() returns an Eigen::ArrayBase Array expression of this matrix
+    // Eigen Array provides some interface to operate on each element independently
+    // (R.array() < s).select(P,Q) ==> (R < s ? P : Q) also is a operator on each element not the whole matrix
+    // for every eigenvalues decomposed from the matrix saes, if the eigenvalue is bigger than eps, put the inverse of the eigen 
     Eigen::MatrixXd Amm_inv = saes.eigenvectors() * Eigen::VectorXd((saes.eigenvalues().array() > eps).select(saes.eigenvalues().array().inverse(), 0)).asDiagonal() * saes.eigenvectors().transpose();
     //printf("error1: %f\n", (Amm * Amm_inv - Eigen::MatrixXd::Identity(m, m)).sum());
 
@@ -341,6 +363,11 @@ void MarginalizationInfo::marginalize()
     b = brr - Arm * Amm_inv * bmm;
 
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes2(A);
+    /* 
+     * currently, the matrix A is an n*n matrix, S is a vector whose size is the same as the number of eigen values, if an eigen value is bigger than eps, put it into 
+     * S; else put 0 instead into S. S_inv is a vector whose size is the same as the number of eigen values, if an eigen value is bigger than eps, put its inverse
+     * into S_inv; else put 0 instead into S
+     */
     Eigen::VectorXd S = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array(), 0));
     Eigen::VectorXd S_inv = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array().inverse(), 0));
 
@@ -348,6 +375,7 @@ void MarginalizationInfo::marginalize()
     Eigen::VectorXd S_sqrt = S.cwiseSqrt();
     Eigen::VectorXd S_inv_sqrt = S_inv.cwiseSqrt();
 
+    // question :: is linearized_jacobians the LLT decomposion of matrix A
     linearized_jacobians = S_sqrt.asDiagonal() * saes2.eigenvectors().transpose();
     linearized_residuals = S_inv_sqrt.asDiagonal() * saes2.eigenvectors().transpose() * b;
     //std::cout << A << std::endl
