@@ -19,12 +19,15 @@ bool inBorder(const cv::Point2f &pt)
 void reduceVector(vector<cv::Point2f> &v, vector<uchar> status)
 {
     int j = 0;
+    // I think this circulation is funny, it didn't use other space to construct the new vector, instead it directly operate on
+    // the original vector
     for (int i = 0; i < int(v.size()); i++)
         if (status[i])
             v[j++] = v[i];
     v.resize(j);
 }
 
+// use the element in vector status corresponding to the element in vector v to determine whether the element will be kept in vector v
 void reduceVector(vector<int> &v, vector<uchar> status)
 {
     int j = 0;
@@ -39,8 +42,21 @@ FeatureTracker::FeatureTracker()
 {
 }
 
+/*
+ * brief: 
+ * compute a mask, so latter when detecting new features we can restrain features near exsiting features
+ * 
+ * In details: 
+ * 1. if the camera is a fisheye camera, use the fisheye_mask as the initial mask, else use a all 255-value image as the initial mask
+ * 2. construct a vector<pair<int, pair<cv::Point2f, int>>> object cnt_pts_id, every element is a trackcount, its corresponding forward
+ *    points and the point id, for every point in vector forw_pts, put its infomation to cnts_pts_id
+ * 3. for every element in vector cnt_pts_id, if the mask at the feature point in the element is 255, push the infomation separately 
+ *    into empty vectors forw_pts, ids, track_cnt; then draw a circle whose center is the feature point and radius is MIN_DIST, then
+ *    fill the circle with 0-value
+ */
 void FeatureTracker::setMask()
 {
+    // if the camera is a fisheye camera, use the fisheye_mask as the initial mask, else use a all 255-value image as the initial mask
     if(FISHEYE)
         mask = fisheye_mask.clone();
     else
@@ -51,6 +67,7 @@ void FeatureTracker::setMask()
     vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id;
 
     // the vector cnt_pts_id stores the information  pair<track_count, pair<point, point_id>>
+    // here, forw_pts means the points in the next frame8
     for (unsigned int i = 0; i < forw_pts.size(); i++)
         cnt_pts_id.push_back(make_pair(track_cnt[i], make_pair(forw_pts[i], ids[i])));
 
@@ -75,6 +92,7 @@ void FeatureTracker::setMask()
     }
 }
 
+// for p in vector n_pts, push back p to forw_pts, push back -1 to ids, and push_back 1 to track_cnt
 void FeatureTracker::addPoints()// add point into vector forw_pts, ids and track_cnt, the id was set to -1 and the track count was set to 1
 {
     for (auto &p : n_pts)
@@ -85,12 +103,29 @@ void FeatureTracker::addPoints()// add point into vector forw_pts, ids and track
     }
 }
 
+/*
+ * brief:
+ * this function find corresponding points between two adjacent frames(also detect new features for the new image), and compute velocity in the undistorted
+ * camera coordinate
+ * 
+ * In detail: 
+ * 1. using img from the imput to assign forw_img
+ * 2. using Lucas-Kanade optical flow in pyramids to find corresponding points in cur_img and prev_img, use the status of LK to reduce some elements
+ *    in some corresponding vectors
+ * 3. if PUB_THIS_FRAME is true
+ *    3.1 compute fundamental matrix using a set of corresponding points, use the status of fundamental computation to delete some elements in the vector
+ *    3.2 construct a mask using forw_pts
+ *    3.3 if forw_pts's size is smaller than MAX_CNT, detect (MAX_CNT-forw_pts.size()) features in forw_img(this step take mask constructed in 3.2
+ *        into consideration), add the detected points to forw_pts, ids and track_cnt
+ * 4. use cur_un_pts_map and prev_un_pts_map to compute velocity for feature points, if we can not find valid velocity for a point, use (0, 0) as its velocity
+ */
 void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
 {
     cv::Mat img;
     TicToc t_r;
     cur_time = _cur_time;
 
+    // if the EQUALIZE flag is true, apply clahe for the input _img
     if (EQUALIZE)
     {
         cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
@@ -101,6 +136,7 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     else
         img = _img;
 
+    // if the forw_img is empty, let prev_img = cur_img = forw_img = img; else just let forw_img = img
     if (forw_img.empty())
     {
         prev_img = cur_img = forw_img = img;
@@ -110,8 +146,15 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
         forw_img = img;
     }
 
+    // clear the vector forw_pts
     forw_pts.clear();
 
+    /* 
+     * if the size of cur_pts is bigger than 0, use cur_img, forw_img, cur_pts and the optical flow method to compute 
+     * forw_pts, for every point in forw_pts, if the status is ok but the point is not in the border, set status to 0; then
+     * use vector status to reduce vectors prev_pts, cur_pts, forw_pts, ids, cur_un_pts and track_cnt
+     * here I have a question, can the code guarantee that prev_points has the same size as the vector status
+     */
     if (cur_pts.size() > 0)
     {
         TicToc t_o;
@@ -185,9 +228,26 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
         ROS_DEBUG("temporal optical flow costs: %fms", t_o.toc());
     }
 
+    // for every element in vector track_cnt, add the element by 1
     for (auto &n : track_cnt)// add the track count for every point by 1
         n++;
 
+    /*
+     * 1. if the bool value PUB_THIS_FRAME is true, compute the fundamental matrix using a set of corresponding points, use the status of fundamental computation
+     *    to delete some elements in the vector
+     * 2. construct an all-255 mask and fill the area near forw_pts to be 0-value
+     * 3. if the size of vector forw_pts is smaller than MAX_CNT
+     *    3.1 if the mask is empty, print "mask is empty"
+     *    3.2 if the type of the mask is not CV_8UC1, print "mask type wrong"
+     *    3.3 if the size of the mask does not equal the size of forw_img, print "wrong size"
+     *    3.4 detect at most (MAX_CNT - forw_pts.size()) in the region of interest in the image forw_img
+     * 4. if the size of vertor forw_pts is not smaller than MAX_CNT, clear the vector n_pts
+     * 5. for p in vector n_pts, push back p to forw_pts, push back -1 to ids, and push_back 1 to track_cnt, because the points in 
+     *    n_pts is not the points tracked between frames but the newly detected points
+     * 6. assign prev_img using cur_img, assign prev_pts using cur_pts, assign prev_un_pts using cur_un_pts, assign cur_img using forw_img, assign cur_pts using forw_pts
+     * 7. use cur_un_pts_map and prev_un_pts_map to compute velocity for feature points, if we can not find valid velocity for a point, use (0, 0) as its velocity
+     * 8. assign prev_time using cur_time
+     */
     if (PUB_THIS_FRAME)
     {
         // compute fundamental matrix using a set of corresponding points, use the status of fundamental computation to delete some elements in the vector
@@ -208,6 +268,11 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
                 cout << "mask type wrong " << endl;
             if (mask.size() != forw_img.size())
                 cout << "wrong size " << endl;
+            /*
+             * n_pts is the output array of detected corners, (MAX_CNT - forw_pts.size()) is the maximum number of points to return, all the 
+             * corners whose quality measure is less than (best_corner_quality_measure*0.01) will be rejected. MIN_DIST is the minimum possible
+             * Euclidean distance between the returned corners. mask specifies the region in which corners are detected. 
+             */
             cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);
         }
         else
@@ -226,10 +291,19 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     cur_pts = forw_pts;
     // un distort points for elements in cur_pts, make pair of their id and point and save to cur_un_pts_map, if we can find their corresponding in prev
     // frame, compute thier velocity using the diferrence of undistored coordinate in two frames and deltatime, else set their velocity to 0
+    // use cur_un_pts_map and prev_un_pts_map to compute velocity for feature points, if we can not find valid velocity for a point, use (0, 0) as its velocity
     undistortedPoints();
     prev_time = cur_time;
 }
 
+/*
+ * brief:
+ * compute F matrix using un_pts from two consecutive img, then rejct some pair of corresponding points using the F matrix
+ * 
+ * in details:
+ * 1. undistort cur_pts and forw_pts and push the undistorted points separately into un_cur_pts and un_forw_pts
+ * 2. use un_cur_pts and un_forw_pts to compute fundamental matrix, use the status of this step to reduce some corresponding vectors
+ */
 void FeatureTracker::rejectWithF()
 {
     if (forw_pts.size() >= 8)
@@ -322,15 +396,31 @@ void FeatureTracker::showUndistortion(const string &name)
     cv::waitKey(0);
 }
 
+/*
+ * 1. for every element in the vector cur_pts, compute the undistorted camera coordinate, put the undistorted camera coordinate into 
+ *    the empty vector cur_un_pts and put the pair of corresponding index and the undistorted camera coordinate into map cur_un_pts_map
+ * 2. if the map prev_un_pts_map is not empty
+ *    2.1 compute dt using cur_time subtract prev_time, clear the vector<cv::Point2f> object pts_velocity
+ *    2.2 for every element in vector cur_un_pts
+ *        2.2.1 if the corresponding index is not -1 (if the index is -1, it means the point is not tracked 
+ *              between frames, instead it is directly detected from a single frame), use the index to get the corresponding undistorted camera 
+ *              coordinate in prev_un_pts_map, if we can find the corresponding coordinate, use (diffrence_between_cur_undist_and_prev_dist/dt)
+ *              to compute the velocity, put the velocity into vector pts_velocity; else, we can not find the corresponding undistorted coordinate 
+ *              in pts_velocity, so just push back (0, 0) to vector pts_velocity
+ *        2.2.2 else, the corresponding index is -1, just push back (0, 0) to vector pts_velocity
+ * 3. else, the map prev_un_pts_map is empty, push back (size of cur_pts) (0, 0) to vector pts_velocity
+ * 4. using cur_un_pts_map to assign prev_un_pts_map 
+ */
 void FeatureTracker::undistortedPoints()
 {
     cur_un_pts.clear();
-    cur_un_pts_map.clear();
+    cur_un_pts_map.clear(); // cur_un_pts_map is a map<int, cv::Point2f> object
     //cv::undistortPoints(cur_pts, un_pts, K, cv::Mat());
     for (unsigned int i = 0; i < cur_pts.size(); i++)
     {
         Eigen::Vector2d a(cur_pts[i].x, cur_pts[i].y);
         Eigen::Vector3d b;
+        // liftProjective lifts a point from the image plane to its projective ray, b is a unit vector alongside the ray direction
         m_camera->liftProjective(a, b);
         cur_un_pts.push_back(cv::Point2f(b.x() / b.z(), b.y() / b.z()));// cur_un_pts stores the undistorted points
         cur_un_pts_map.insert(make_pair(ids[i], cv::Point2f(b.x() / b.z(), b.y() / b.z())));

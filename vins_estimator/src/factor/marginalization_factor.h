@@ -11,12 +11,20 @@
 #include "../utility/tic_toc.h"
 
 const int NUM_THREADS = 4;
+// this file contains the declaration of 2 classes and 2 structs
 
+/*
+ * 
+ */
 struct ResidualBlockInfo
 {
     ResidualBlockInfo(ceres::CostFunction *_cost_function, ceres::LossFunction *_loss_function, std::vector<double *> _parameter_blocks, std::vector<int> _drop_set)
         : cost_function(_cost_function), loss_function(_loss_function), parameter_blocks(_parameter_blocks), drop_set(_drop_set) {}
 
+    /*
+    * use the cost function to compute the residual and jacobian
+    * if loss_function is not null, use the loss function to weight jacobian and residual
+    */
     void Evaluate();
 
     ceres::CostFunction *cost_function;
