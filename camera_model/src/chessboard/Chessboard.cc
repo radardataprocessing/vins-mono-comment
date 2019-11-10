@@ -474,12 +474,13 @@ Chessboard::findConnectedQuads(std::vector<ChessboardQuadPtr>& quads,
     {
         q = stack.back();
         stack.pop_back();
+        //pop_back removes the last element in the vector, effectively reducing the container size by one
 
         for (int i = 0; i < 4; ++i)
         {
             ChessboardQuadPtr& neighbor = q->neighbors[i];
 
-            // If he neighbor exists and the neighbor has more than 0
+            // If the neighbor exists and the neighbor has more than 0
             // neighbors and the neighbor has not been classified yet.
             if (neighbor.get() && neighbor->count > 0 && neighbor->group_idx < 0)
             {
@@ -1052,7 +1053,7 @@ Chessboard::augmentBestRun(std::vector<ChessboardQuadPtr>& candidateQuads, int c
     // distance between 2 neighboring corners. Since the distance below is
     // computed as its square, we do here the same. Additionally, we take the
     // conservative assumption that dilation was performed using the 3x3 CROSS
-    // kernel, which coresponds to the 4-neighborhood.
+    // kernel, which corresponds to the 4-neighborhood.
     const float thresh_dilation = (2*candidateDilation+3)*(2*existingDilation+3)*2;    // the "*2" is for the x and y component
 
     // Search all old quads which have a neighbor that needs to be linked

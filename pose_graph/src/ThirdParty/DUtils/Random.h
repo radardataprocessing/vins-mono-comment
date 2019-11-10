@@ -63,6 +63,7 @@ public:
 	 * @param max
 	 * @return random T number in [min..max]
 	 */
+  // Random::RandomValue<T>() return random value in range [0, 1], Random::RandomValue<T>() * (max - min) return random value in range [0, max-min]
 	template <class T>
 	static T RandomValue(T min, T max){
 		return Random::RandomValue<T>() * (max - min) + min;
@@ -82,7 +83,7 @@ public:
 	 * @param sigma standard deviation
 	 */
 	template <class T>
-	static T RandomGaussianValue(T mean, T sigma)
+	static T RandomGaussianValue(T mean, T sigma) // return a random number from a gaussian distribution
 	{
     // Box-Muller transformation
     T x1, x2, w, y1;
@@ -144,7 +145,7 @@ public:
    * Returns whether all the possible values between min and max were
    * already given. If get() is called when empty() is true, the behaviour
    * is the same than after creating the randomizer
-   * @return true iff all the values were returned
+   * @return true if all the values were returned
    */
   inline bool empty() const { return m_values.empty(); }
   

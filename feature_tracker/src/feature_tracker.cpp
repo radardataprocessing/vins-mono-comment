@@ -4,7 +4,7 @@
 
 int FeatureTracker::n_id = 0;
 
-// check whether the point is in the rect defined by ROW, COL, BORDER_SIZE
+// check whether the point is in the rect (BORDER_SIZE:(ROW - BORDER_SIZE), BORDER_SIZE:(COL - BORDER_SIZE))
 bool inBorder(const cv::Point2f &pt)
 {
     const int BORDER_SIZE = 1;
@@ -342,6 +342,14 @@ void FeatureTracker::rejectWithF()
     }
 }
 
+/*
+ * brief:
+ * update id for a point
+ * 
+ * in detail:
+ * 1. if i is smaller than ids.size(), I think it means i is an index of vector ids, if ids[i] equals -1, assign ids[i] using n_id++ and return true
+ * 2. if i is no smaller than ids.size(), return false
+ */
 bool FeatureTracker::updateID(unsigned int i)
 {
     if (i < ids.size())
@@ -354,12 +362,27 @@ bool FeatureTracker::updateID(unsigned int i)
         return false;
 }
 
+/*
+ * brief:
+ * read the camera intrinsic from the calib file
+ */
 void FeatureTracker::readIntrinsicParameter(const string &calib_file)
 {
     ROS_INFO("reading paramerter of camera %s", calib_file.c_str());
     m_camera = CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
 }
 
+/*
+ * brief:
+ * undistort cur_img and show
+ * 
+ * in detail:
+ * 1. for every coordinate in the range (0:ROW, 0:COL), push back the origin coordinate to vector distortedp, and push back the undistorted
+ *    coordinate to vector undistortedp
+ * 2. for every element in the vector undistortedp, use the corresponding coordinate from distortedp and undistortedp to reproject cur_img
+ *    to undistortedImg
+ * 3. show undistortedImg
+ */
 void FeatureTracker::showUndistortion(const string &name)
 {
     cv::Mat undistortedImg(ROW + 600, COL + 600, CV_8UC1, cv::Scalar(0));
@@ -397,6 +420,11 @@ void FeatureTracker::showUndistortion(const string &name)
 }
 
 /*
+ * brief:
+ * undistort cur_pts and use cur_un_pts_map and prev_un_pts_map to compute velocity for feature points, if we can not find valid 
+ * velocity for a point, use (0, 0) as its velocity
+ * 
+ * in detail:
  * 1. for every element in the vector cur_pts, compute the undistorted camera coordinate, put the undistorted camera coordinate into 
  *    the empty vector cur_un_pts and put the pair of corresponding index and the undistorted camera coordinate into map cur_un_pts_map
  * 2. if the map prev_un_pts_map is not empty

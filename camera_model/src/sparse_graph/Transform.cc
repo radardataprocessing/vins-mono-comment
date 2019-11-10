@@ -3,12 +3,15 @@
 namespace camodocal
 {
 
+// return an object of this class whose m_q is identity and m_t is zero
 Transform::Transform()
 {
     m_q.setIdentity();
     m_t.setZero();
 }
 
+// return an object of this class whose m_q is the quaternion expression of the top left 3*3 block of input H 
+// and m_t is the top right 3*1 block of the input H
 Transform::Transform(const Eigen::Matrix4d& H)
 {
    m_q = Eigen::Quaterniond(H.block<3,3>(0,0));
@@ -63,6 +66,8 @@ Transform::translationData(void) const
     return m_t.data();
 }
 
+// put the rotation matrix expression of m_q to the left top 3*3 block of the output matrix and
+// put the translation m_t to the top right 3*1 block of the output matrix
 Eigen::Matrix4d
 Transform::toMatrix(void) const
 {

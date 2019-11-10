@@ -5,9 +5,29 @@
 #include <cstring>
 #include <eigen3/Eigen/Dense>
 
+/*
+ * the grammar of C++ lambda expression is:
+ * [capture list] (parameter list) -> return type { function body }
+ * 
+ * for example:
+ * 1. auto f = [](int a, int b) {return a>b;}
+ * 2. use sort as an example, we have two ways to sort a vector in descending order
+ *    2.1 the first one is the regular way:
+ *        bool compare(int& a, int& b)
+ *        {
+ *           return a>b;
+ *        }
+ *        sort(a, a+n, compare);
+ *    2.2 the second one uses the lambda expression:
+ *        sort(a, a+n, [](int a, int b){return a > b;});
+ */
+
 class Utility
 {
   public:
+    /*
+     * use the small delta angle to get the delta quaternion
+     */
     template <typename Derived>
     static Eigen::Quaternion<typename Derived::Scalar> deltaQ(const Eigen::MatrixBase<Derived> &theta)
     {
@@ -23,6 +43,7 @@ class Utility
         return dq;
     }
 
+    // return the skew symmetric of the input vector
     template <typename Derived>
     static Eigen::Matrix<typename Derived::Scalar, 3, 3> skewSymmetric(const Eigen::MatrixBase<Derived> &q)
     {
@@ -33,6 +54,7 @@ class Utility
         return ans;
     }
 
+    // just return the input 
     template <typename Derived>
     static Eigen::Quaternion<typename Derived::Scalar> positify(const Eigen::QuaternionBase<Derived> &q)
     {
@@ -43,6 +65,7 @@ class Utility
         return q;
     }
 
+    // return a 4*4 matrix which can represent using the quaternion to apply left multiply 
     template <typename Derived>
     static Eigen::Matrix<typename Derived::Scalar, 4, 4> Qleft(const Eigen::QuaternionBase<Derived> &q)
     {
@@ -53,6 +76,7 @@ class Utility
         return ans;
     }
 
+    // return a 4*4 matrix which can represent using the quaternion to apply right multiply
     template <typename Derived>
     static Eigen::Matrix<typename Derived::Scalar, 4, 4> Qright(const Eigen::QuaternionBase<Derived> &p)
     {
@@ -63,6 +87,7 @@ class Utility
         return ans;
     }
 
+    // return the y, p, r angles in degree of the input matrix R
     static Eigen::Vector3d R2ypr(const Eigen::Matrix3d &R)
     {
         Eigen::Vector3d n = R.col(0);
@@ -80,6 +105,9 @@ class Utility
         return ypr / M_PI * 180.0;
     }
 
+    /*
+     * for the input {y, p, r} in degree, return R = Rz(y)*Ry(p)*Rx(r)
+     */
     template <typename Derived>
     static Eigen::Matrix<typename Derived::Scalar, 3, 3> ypr2R(const Eigen::MatrixBase<Derived> &ypr)
     {

@@ -112,7 +112,7 @@ int main(int argc, char** argv)
 
         std::string filename = itr->path().filename().string();
 
-        // check if prefix matches
+        // check if prefix matches  check if the prefix match the set one, if not, continue to process next file
         if (!prefix.empty())
         {
             if (filename.compare(0, prefix.length(), prefix) != 0)
@@ -121,13 +121,14 @@ int main(int argc, char** argv)
             }
         }
 
-        // check if file extension matches
+        // check if file extension matches  check if the file extension match the set one, if not, continue to process next file
         if (filename.compare(filename.length() - fileExtension.length(), fileExtension.length(), fileExtension) != 0)
         {
             continue;
         }
 
-        imageFilenames.push_back(itr->path().string());
+        // if the file satisfy the above conditions, push back the file to std::vector<std::string> imageFilenames
+        imageFilenames.push_back(itr->path().string()); 
 
         if (verbose)
         {
@@ -135,7 +136,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (imageFilenames.empty())
+    if (imageFilenames.empty())// if the vector imageFilenames is empty, print error message and return from the main function
     {
         std::cerr << "# ERROR: No chessboard images found." << std::endl;
         return 1;
@@ -146,7 +147,7 @@ int main(int argc, char** argv)
         std::cerr << "# INFO: # images: " << imageFilenames.size() << std::endl;
     }
 
-    std::sort(imageFilenames.begin(), imageFilenames.end());
+    std::sort(imageFilenames.begin(), imageFilenames.end()); // sort the filenames in vector imageFilenames
 
     cv::Mat image = cv::imread(imageFilenames.front(), -1);
     const cv::Size frameSize = image.size();
@@ -155,13 +156,13 @@ int main(int argc, char** argv)
     calibration.setVerbose(verbose);
 
     std::vector<bool> chessboardFound(imageFilenames.size(), false);
-    for (size_t i = 0; i < imageFilenames.size(); ++i)
+    for (size_t i = 0; i < imageFilenames.size(); ++i)// for every image in the vector imageFilenames
     {
         image = cv::imread(imageFilenames.at(i), -1);
 
         camodocal::Chessboard chessboard(boardSize, image);
 
-        chessboard.findCorners(useOpenCV);
+        chessboard.findCorners(useOpenCV); // find chessboard corners in the image
         if (chessboard.cornersFound())
         {
             if (verbose)
@@ -169,7 +170,7 @@ int main(int argc, char** argv)
                 std::cerr << "# INFO: Detected chessboard in image " << i + 1 << ", " << imageFilenames.at(i) << std::endl;
             }
 
-            calibration.addChessboardData(chessboard.getCorners());
+            calibration.addChessboardData(chessboard.getCorners());// add the detected chessboard corners to the calibration problem
 
             cv::Mat sketch;
             chessboard.getSketch().copyTo(sketch);
@@ -185,7 +186,7 @@ int main(int argc, char** argv)
     }
     cv::destroyWindow("Image");
 
-    if (calibration.sampleCount() < 10)
+    if (calibration.sampleCount() < 10)// if we can only detect chessboard in less than 10 images
     {
         std::cerr << "# ERROR: Insufficient number of detected chessboards." << std::endl;
         return 1;
@@ -198,11 +199,11 @@ int main(int argc, char** argv)
 
     double startTime = camodocal::timeInSeconds();
 
-    calibration.calibrate();
+    calibration.calibrate(); // calibrate the intrinsic and extrinsics
     calibration.writeParams(cameraName + "_camera_calib.yaml");
     calibration.writeChessboardData(cameraName + "_chessboard_data.dat");
 
-    if (verbose)
+    if (verbose) // print the calibration time
     {
         std::cout << "# INFO: Calibration took a total time of "
                   << std::fixed << std::setprecision(3) << camodocal::timeInSeconds() - startTime
@@ -214,6 +215,7 @@ int main(int argc, char** argv)
         std::cerr << "# INFO: Wrote calibration file to " << cameraName + "_camera_calib.yaml" << std::endl;
     }
 
+    // draw circle around the 2D measurement and reprojection points on each image, and write the reprojection error on the image
     if (viewResults)
     {
         std::vector<cv::Mat> cbImages;

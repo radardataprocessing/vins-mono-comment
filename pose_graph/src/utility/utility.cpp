@@ -1,5 +1,9 @@
 #include "utility.h"
 
+/*
+ * compute the rotation R to transform the normalized gravity vector to (0, 0, 1), compute ypr(yaw, pitch, roll) using the R matrix, the yaw is the last axis to rotate around, and
+ * the destina is parallal to the z axis, so if we rotate around z axis last, it doesn't affect the result, so return r=ypr2R(-yaw, 0, 0)*R
+ */
 Eigen::Matrix3d Utility::g2R(const Eigen::Vector3d &g)
 {
     Eigen::Matrix3d R0;

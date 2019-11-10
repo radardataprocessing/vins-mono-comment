@@ -128,15 +128,20 @@ Camera::estimateExtrinsics(const std::vector<cv::Point3f>& objectPoints,
     for (size_t i = 0; i < Ms.size(); ++i)
     {
         Eigen::Vector3d P;
+        // Lift points from the image plane to the projective space
         liftProjective(Eigen::Vector2d(imagePoints.at(i).x, imagePoints.at(i).y), P);
 
-        P /= P(2);
+        P /= P(2);//normalize the lifted coordinate of the image point to be homogeneous coordinate
 
         Ms.at(i).x = P(0);
         Ms.at(i).y = P(1);
     }
 
     // assume unit focal length, zero principal point, and zero distortion
+    /*
+     * rvec is the output rotation vector that, together with tvec, bring points from the model coordinate
+     * system to the camera coordinate system
+     */
     cv::solvePnP(objectPoints, Ms, cv::Mat::eye(3, 3, CV_64F), cv::noArray(), rvec, tvec);
 }
 
@@ -145,7 +150,7 @@ Camera::reprojectionDist(const Eigen::Vector3d& P1, const Eigen::Vector3d& P2) c
 {
     Eigen::Vector2d p1, p2;
 
-    spaceToPlane(P1, p1);
+    spaceToPlane(P1, p1);// project 3D points to the image plane
     spaceToPlane(P2, p2);
 
     return (p1 - p2).norm();

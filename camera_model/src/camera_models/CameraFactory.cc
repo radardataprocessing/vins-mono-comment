@@ -102,6 +102,7 @@ CameraFactory::generateCameraFromYamlFile(const std::string& filename)
         std::string sModelType;
         fs["model_type"] >> sModelType;
 
+        // the i in function name iequals means ignore 
         if (boost::iequals(sModelType, "kannala_brandt"))
         {
             modelType = Camera::KANNALA_BRANDT;

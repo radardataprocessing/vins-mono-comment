@@ -46,31 +46,37 @@ const double WGS84_ECCSQ = 0.00669437999013;
 namespace camodocal
 {
 
+// compute norm of double vector (x, y, z)
 double hypot3(double x, double y, double z)
 {
 	return sqrt(square(x) + square(y) + square(z));
 }
 
+// compute norm of float vector (x, y, z)
 float hypot3f(float x, float y, float z)
 {
 	return sqrtf(square(x) + square(y) + square(z));
 }
 
+// convert double type degree to radius
 double d2r(double deg)
 {
 	return deg / 180.0 * M_PI;
 }
 
+// convert float type degree to radius
 float d2r(float deg)
 {
 	return deg / 180.0f * M_PI;
 }
 
+// convert double type radius to degree
 double r2d(double rad)
 {
 	return rad / M_PI * 180.0;
 }
 
+// convert float type radius to degree
 float r2d(float rad)
 {
 	return rad / M_PI * 180.0f;
@@ -146,6 +152,7 @@ clock_gettime(int X, struct timespec *tp)
 }
 #endif
 
+// return time whose unit is microseconds
 unsigned long long timeInMicroseconds(void)
 {
 	 struct timespec tp;
@@ -158,6 +165,7 @@ unsigned long long timeInMicroseconds(void)
 	 return tp.tv_sec * 1000000 + tp.tv_nsec / 1000;
 }
 
+// return time whose unit is seconds
 double timeInSeconds(void)
 {
     struct timespec tp;
@@ -436,6 +444,7 @@ float colormapJet[128][3] =
 		{0.5f,0.0f,0.0f}
 };
 
+// assign color for depth in imgDepth who is in range [minRange, maxRange], save the colored mat to imgColoredDepth
 void colorDepthImage(cv::Mat& imgDepth, cv::Mat& imgColoredDepth,
 					 float minRange, float maxRange)
 {
@@ -462,6 +471,8 @@ void colorDepthImage(cv::Mat& imgDepth, cv::Mat& imgColoredDepth,
 	}
 }
 
+// the std::string name in the parameter list represents the type of the color map, use the idx th value in the color map to 
+// assign r, g, b; if the type is neither "jet" nor "autumn", return false; else return true
 bool colormap(const std::string& name, unsigned char idx,
 			  float& r, float& g, float& b)
 {
@@ -489,6 +500,12 @@ bool colormap(const std::string& name, unsigned char idx,
 	return false;
 }
 
+/*
+ * the Bresenham's line algorithm can be used to draw a line determined by two points, it only uses the fast addtion, subtraction and
+ * shift operations , often used in draw the line on screen
+ * real line is continous, but the accuracy of the computer screen is limited, so it can not show real continous line , so we use a 
+ * series of discrete pixels to represent the line
+ */
 std::vector<cv::Point2i> bresLine(int x0, int y0, int x1, int y1)
 {
 	// Bresenham's line algorithm
@@ -508,7 +525,7 @@ std::vector<cv::Point2i> bresLine(int x0, int y0, int x1, int y1)
 	{
 		cells.push_back(cv::Point2i(x0, y0));
 
-		if (x0 == x1 && y0 == y1)
+		if (x0 == x1 && y0 == y1)// if the inserted cell hit the end cell of the line, break from the while circulation
 		{
 			break;
 		}
@@ -618,6 +635,22 @@ std::vector<cv::Point2i> bresCircle(int x0, int y0, int r)
 	return cells;
 }
 
+/*
+ * if the circle is centered at (a, b), for every two points in the data set, the line connecting the two points is the chord of the circle, so
+ * the perpendicular bisectors of the line segments connecting points in the set will intersect at the same point, namely the center of the 
+ * circle (a, b). Thus it seems reasonable to locate the center of the circle at the point where the sum of the distance from (a, b) to each of 
+ * perpendicular bisectors is minimum.
+ * the slope of the line connecting pi and pj is (yj - yi)/(xj - xi)
+ * the slope of the perpendicular bisector of the line segment is -(xj - xi)/(yj - yi)
+ * the perpendicular bisector also passes point ( (xi+xj)/2, (yi+yj)/2 )
+ * so the equation of the perpendicular bisector is ( y - (yi + yj)/2 )/( x - (xi + xj)/2 ) = -(xj - xi)/(yj - yi)
+ * namely, (xj - xi)*x + (yj - yi)*y - (yj*yj - yi*yi)/2 - (xj*xj - xi*xi)/2 = 0
+ * the square of distance of (a, b) to the perpendicular bisector is 
+ * ((xj - xi)*a + (yj - yi)*b - (yj*yj - yi*yi)/2 - (xj*xj - xi*xi)/2).square()/((xj-xi)*(xj-xi)+(yj-yi)*(yj-yi))
+ * to downweight pairs of points that are close together, only consider ((xj - xi)*a + (yj - yi)*b - (yj*yj - yi*yi)/2 - (xj*xj - xi*xi)/2).square()
+ * let the differentiation of square distance about a and b equals 0, we can get a and b
+ * then, use the reletive between r and the distance between point in set and (a, b) to compute r
+ */
 void
 fitCircle(const std::vector<cv::Point2d>& points,
           double& centerX, double& centerY, double& radius)
@@ -673,13 +706,14 @@ fitCircle(const std::vector<cv::Point2d>& points,
     radius = sum_r / n;
 }
 
+// find the intersect points for two circles
 std::vector<cv::Point2d>
 intersectCircles(double x1, double y1, double r1,
                  double x2, double y2, double r2)
 {
     std::vector<cv::Point2d> ipts;
 
-    double d = hypot(x1 - x2, y1 - y2);
+    double d = hypot(x1 - x2, y1 - y2);// d is the distance between two circle centers
     if (d > r1 + r2)
     {
         // circles are separate
@@ -690,8 +724,16 @@ intersectCircles(double x1, double y1, double r1,
         // one circle is contained within the other
         return ipts;
     }
+	// the above two conditions have no intersect points
 
-    double a = (square(r1) - square(r2) + square(d)) / (2.0 * d);
+    /*
+	 * consider the law of cosines
+	 * cosA = (b*b+c*c-a*a)/(2*b*c)
+	 * for the triangle consists of O1, O2 and the intersect point P, the length of the side O1P is r1, the length of the side O2P is r2, the
+	 * length of the side O1O2 is d. cosO1 = (r1*r1+d*d-r2*r2)/(2*r1*d)      
+	 * (r1*r1+d*d-r2*r2)/(2*d)=r1*cosO1 is the distance from O1 to the chord consists of two intersect points
+	 */
+	double a = (square(r1) - square(r2) + square(d)) / (2.0 * d);
     double h = sqrt(square(r1) - square(a));
 
     double x3 = x1 + a * (x2 - x1) / d;

@@ -514,6 +514,7 @@ CostFunctionFactory::generateCostFunction(const CameraConstPtr& camera,
         switch (camera->modelType())
         {
         case Camera::KANNALA_BRANDT:
+            // 2 means the number of residuals, 8, 4, 3 means the number of paramters in each parameter block
             costFunction =
                 new ceres::AutoDiffCostFunction<ReprojectionError1<EquidistantCamera>, 2, 8, 4, 3>(
                 new ReprojectionError1<EquidistantCamera>(observed_P, observed_p));

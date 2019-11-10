@@ -8,6 +8,7 @@
 namespace camodocal
 {
 
+// calmp v between [a, b]
 template<class T>
 const T clamp(const T& v, const T& a, const T& b)
 {
@@ -17,6 +18,7 @@ const T clamp(const T& v, const T& a, const T& b)
 double hypot3(double x, double y, double z);
 float hypot3f(float x, float y, float z);
 
+// normalize theta between [-M_PI. M_PI]
 template<class T>
 const T normalizeTheta(const T& theta)
 {
@@ -41,24 +43,28 @@ float r2d(float rad);
 
 double sinc(double theta);
 
+// compute the square for x
 template<class T>
 const T square(const T& x)
 {
 	return x * x;
 }
 
+// compute the cubic of x
 template<class T>
 const T cube(const T& x)
 {
 	return x * x * x;
 }
 
+// return a random value between [a, b]
 template<class T>
 const T random(const T& a, const T& b)
 {
 	return static_cast<double>(rand()) / RAND_MAX * (b - a) + a;
 }
 
+//
 template<class T>
 const T randomNormal(const T& sigma)
 {

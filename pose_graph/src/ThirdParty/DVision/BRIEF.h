@@ -161,7 +161,7 @@ public:
    */
   inline static int distance(const bitset &a, const bitset &b)
   {
-    return (a^b).count();
+    return (a^b).count(); // conduct bitwise exclusive or between the two descriptors
   }
 
 protected:
