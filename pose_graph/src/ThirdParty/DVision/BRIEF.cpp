@@ -38,7 +38,7 @@ BRIEF::~BRIEF()
 // ---------------------------------------------------------------------------
 /**
  * 1. if treat_image is true, convert the image to gray and apply gaussian blur to the image; else, just use the input image
- * 2. every keypoint in the vector points has a descritor, the descriptor has m_x1.size() bits, every bit is determined by pixel value
+ * 2. each keypoint in the vector points has a descritor, the descriptor has m_x1.size() bits, every bit is determined by pixel value
  *    at (keypoint.x + m_x1[i], keypoint.y + m_y1[i]) and (keypoint.x + m_x2[i], keypoint.y + m_y2[i])
  */
 void BRIEF::compute(const cv::Mat &image, 
@@ -118,7 +118,7 @@ void BRIEF::compute(const cv::Mat &image,
 }
 
 // ---------------------------------------------------------------------------
-
+// generate random point pairs for brief descriptor computation
 void BRIEF::generateTestPoints()
 {  
   m_x1.resize(m_bit_length);
@@ -165,6 +165,7 @@ void BRIEF::generateTestPoints()
     
     do
     {
+      // return a random number from a gaussian distribution
       x2 = DUtils::Random::RandomGaussianValue(meanx, sigma2);
     } while( x2 > max_v || x2 < -max_v);
     

@@ -86,6 +86,7 @@ private:
 	ros::Publisher pub_path[10];
 };
 
+// normalize the input angle to range [-180, 180]
 template <typename T>
 T NormalizeAngle(const T& angle_degrees) {
   if (angle_degrees > T(180.0))
@@ -96,9 +97,11 @@ T NormalizeAngle(const T& angle_degrees) {
   	return angle_degrees;
 };
 
+
 class AngleLocalParameterization {
  public:
 
+  // add theta_radians to delta_theta_radians and normalize, then put the sum to theta_radians_plus_delta, return true
   template <typename T>
   bool operator()(const T* theta_radians, const T* delta_theta_radians,
                   T* theta_radians_plus_delta) const {
@@ -114,6 +117,7 @@ class AngleLocalParameterization {
   }
 };
 
+// use the yaw, pitch, roll degree to compute rotation matrix
 template <typename T> 
 void YawPitchRollToRotationMatrix(const T yaw, const T pitch, const T roll, T R[9])
 {
@@ -134,6 +138,7 @@ void YawPitchRollToRotationMatrix(const T yaw, const T pitch, const T roll, T R[
 	R[8] = cos(p) * cos(r);
 };
 
+// compute the inverse of the rotation matrix and put it to inv_R
 template <typename T> 
 void RotationMatrixTranspose(const T R[9], T inv_R[9])
 {
@@ -148,6 +153,7 @@ void RotationMatrixTranspose(const T R[9], T inv_R[9])
 	inv_R[8] = R[8];
 };
 
+// use the rotation matrix R to rotate the vector t, then put the rotated vector to r_t
 template <typename T> 
 void RotationMatrixRotatePoint(const T R[9], const T t[3], T r_t[3])
 {
@@ -156,11 +162,12 @@ void RotationMatrixRotatePoint(const T R[9], const T t[3], T r_t[3])
 	r_t[2] = R[6] * t[0] + R[7] * t[1] + R[8] * t[2];
 };
 
-struct FourDOFError
+struct FourDOFError // 4DOF here means x, y, z, yaw
 {
 	FourDOFError(double t_x, double t_y, double t_z, double relative_yaw, double pitch_i, double roll_i)
 				  :t_x(t_x), t_y(t_y), t_z(t_z), relative_yaw(relative_yaw), pitch_i(pitch_i), roll_i(roll_i){}
 
+	// compute residuals as the difference of reletive translation, yaw and the computed translation and yaw
 	template <typename T>
 	bool operator()(const T* const yaw_i, const T* ti, const T* yaw_j, const T* tj, T* residuals) const
 	{
@@ -171,14 +178,15 @@ struct FourDOFError
 
 		// euler to rotation
 		T w_R_i[9];
-		YawPitchRollToRotationMatrix(yaw_i[0], T(pitch_i), T(roll_i), w_R_i);
+		YawPitchRollToRotationMatrix(yaw_i[0], T(pitch_i), T(roll_i), w_R_i);// use yaw_i[0], pitch_i, roll_i to construct a ith to world rotation matrix
 		// rotation transpose
 		T i_R_w[9];
-		RotationMatrixTranspose(w_R_i, i_R_w);
+		RotationMatrixTranspose(w_R_i, i_R_w);// use ith to world rotation matrix to get world to ith rotation matrix
 		// rotation matrix rotate point
 		T t_i_ij[3];
-		RotationMatrixRotatePoint(i_R_w, t_w_ij, t_i_ij);
+		RotationMatrixRotatePoint(i_R_w, t_w_ij, t_i_ij);// use the world to ith rotation matrix to convert t_w_ij to t_i_ij
 
+		// the four domain of freedom residuals are x translation, y translation, z translation and yaw in order
 		residuals[0] = (t_i_ij[0] - T(t_x));
 		residuals[1] = (t_i_ij[1] - T(t_y));
 		residuals[2] = (t_i_ij[2] - T(t_z));
@@ -200,6 +208,7 @@ struct FourDOFError
 
 };
 
+// compared to FourDOFError, this class weight the residuals
 struct FourDOFWeightError
 {
 	FourDOFWeightError(double t_x, double t_y, double t_z, double relative_yaw, double pitch_i, double roll_i)

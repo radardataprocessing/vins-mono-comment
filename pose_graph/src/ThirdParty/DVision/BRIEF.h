@@ -47,7 +47,8 @@ public:
   enum Type
   {
     RANDOM, // random pairs (Calonder's original version)
-    RANDOM_CLOSE, // random but close pairs (used in GalvezIROS11)
+    RANDOM_CLOSE, // random but close pairs (used in GalvezIROS11)   
+    // I think RANDOM_CLOSE here means that the generated random values are distributed more closer to each other 
   };
   
 public:

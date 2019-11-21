@@ -2,13 +2,15 @@
 
 int FeaturePerId::endFrame()// I think this means the index of the lastest frame observing the feature
 {
+    /* every element in feature_per_frame contains a feature observed by a frame, I think vector<FeaturePerFrame> feature_per_frame stores 
+       the information of a feature observed by different frames*/
     return start_frame + feature_per_frame.size() - 1;
 }
 
 FeatureManager::FeatureManager(Matrix3d _Rs[])
-    : Rs(_Rs)
+    : Rs(_Rs) // Rs mean the rotation from imu to world
 {
-    for (int i = 0; i < NUM_OF_CAM; i++)
+    for (int i = 0; i < NUM_OF_CAM; i++) // NUM_OF_CAM represents how many cameras are there on the hardware platform
         ric[i].setIdentity();
 }
 
@@ -23,7 +25,7 @@ void FeatureManager::setRic(Matrix3d _ric[])
 
 void FeatureManager::clearState()// clear the list feature
 {
-    feature.clear();
+    feature.clear(); // list<FeaturePerId> feature 
 }
 
 /*
@@ -50,6 +52,13 @@ int FeatureManager::getFeatureCount()
  * the feature point's 3D position, 2D coordinate and velocity, here the camera id means the camera id in case of multi-camera 
  * I think the map image in the parameter list means all features in one frame, frame_count is the index of the image
  * 
+ * 1. for every feature point in image, use the feature_id to find whether the feature is already in the list<FeaturePerId> feature, if
+ *    no, push feature(id is input feature_id, start_frame is feature_count) to list feature, and push the FeaturePerFrame object
+ *    to the constructed FeaturePerId object; else just push the FeaturePerFrame object to the found index and add 1 to last_track_num
+ * 2. if frame count is less than 2 or last_track_num is less than 20, return true
+ * 3. for every FeaturePerId object in vector feature, if the start_frame is no bigger than frame_count-2 and the endFrame is no less 
+ *    than frame_count -1, add disparity of the feature to parallax_sum, add 1 to parallax_num
+ * 4. if parallax_num equals 0, return true; else, compute average parallax as parallax_sum/parallax_num, return average>=MIN_PARALLAX
  */
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
@@ -66,6 +75,12 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         int feature_id = id_pts.first;// get the id of the feature
         // list<FeaturePerId> feature   find whether here's an element in list feature who has the same feature id with the current feature point
         // find whether here is a feature who has the same id with current feature in the list feature
+        /* 
+         * template <class InputIterator, class UnaryPredicate>
+         * InputIterator find_if (InputIterator first, InputIterator last, UnaryPredicate pred)
+         * returns an iterator to the first element in the range [first, last) for which pred returns true. If no such element is 
+         * found, the function returns last
+         */
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
@@ -74,7 +89,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         if (it == feature.end())// if we can not find the element in list feature, construct one and push it into the list
         {
             // the second parameter in the constructor of FeaturePerId is used as the start_frame of the feature
-            feature.push_back(FeaturePerId(feature_id, frame_count)); 
+            feature.push_back(FeaturePerId(feature_id, frame_count)); // FeaturePerId(int _feature_id, int _start_frame)
             feature.back().feature_per_frame.push_back(f_per_fra);
         }
         // if we can find feature having the same id as the current feature, push f_per_fra to the feature we found in list feature and add last_track_num by 1 
@@ -139,14 +154,19 @@ void FeatureManager::debugShow()
 }
 
 /*
- * I think here the frame_count_l and frame_count_r represents two frames we are interested, if they are in the range of feature_per_frame, get 3D coordinate for
- * the two frames, go through all the feature in list feature to get all correspondings for the two frames
+ * I think here the frame_count_l and frame_count_r represents two frames we are interested, if they are in the range of feature_per_frame, get 3D 
+ * coordinate for the two frames, go through all the feature in list feature to get all correspondings for the two frames
+ * 
+ * for every FeaturePerId object in list feature, if [frame_count_l, frame_count r] is a subset of frames observing the feature, use their frame_count
+ * to compute their index in the vector feature_per_frame, get the corresponding 3d coordinates, push the pair into vector corres
  */
 vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_count_l, int frame_count_r)
 {
     vector<pair<Vector3d, Vector3d>> corres;
     for (auto &it : feature)
     {
+        // makesure that this feature can be observed by frame_count_l and frame_count_r
+        // which means [frame_count_l, frame_count r] is a subset of frames observing the feature
         if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r)// endFrame=start_frame + feature_per_frame.size()-1
         {
             Vector3d a = Vector3d::Zero(), b = Vector3d::Zero();
@@ -166,6 +186,7 @@ vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_coun
 /*
  * for every valid feature in the list feature, set its estimated_depth using the parameter of the function, if the estimated_depth of the feature is negative,
  * set solve_flag of the feature to 2; else set the solve_flag of the feature to 1
+ * 
  */
 void FeatureManager::setDepth(const VectorXd &x)
 {
@@ -203,6 +224,7 @@ void FeatureManager::removeFailures()
 
 /*
  * set depth for every valid feature in list feature
+ * the difference between this function and setDepth is that this function do not set solve_flag for the feature
  */
 void FeatureManager::clearDepth(const VectorXd &x)
 {
@@ -219,6 +241,7 @@ void FeatureManager::clearDepth(const VectorXd &x)
 /*
  * put the inverse depth of every valid feature, the condition of valid is (it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2) to the 
  * returned VectorXd
+ * get the inverse depth of valid features in list feature
  */
 VectorXd FeatureManager::getDepthVector()
 {
@@ -255,6 +278,16 @@ VectorXd FeatureManager::getDepthVector()
  * so we can get 2 equations with one point projection, with a pair of projection, we can get 4 equations, the number of equation is more than the number of 
  * variables, so we can not directly solve the problem. We can apply SVD decompotion for the parameter matrix, finally we can get the vector corresponding to the 
  * minimum singular , if X=(x,y,z,w), the depth is z/w
+ * 
+ * 
+ * for every FeaturePerId object it_per_id in list feature
+ *    1. assign used_num of it_per_id using it_per_id.feature_per_frame.size()
+ *    2. if this is not a valid feature, continue to process next feature
+ *    3. if the feature already have an estimated_depth, continue to process next feature
+ *    4. use frames between the start frame of the feature and every other frame to get the traingulate equation above, the svd matrix has
+ *       (2 * it_per_id.feature_per_frame.size()) rows and 4 cols
+ *    5. conduct svd decomposition for the matrix above and get the 4 dimension solution svd_V
+ *    6. get depth as svd_V[2]/svd_V[3], if the depth is smaller than 0.1, set the depth of this feature tobe INIT_DEPTH
  */
 void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
 {
@@ -290,7 +323,7 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
             imu_j++;
             // tic is an array of Vector3d, ric is an array of Matrix3d
             /*
-             * here, Ps and Rs means the imu to world position and imu to world translation
+             * here, Ps and Rs means the imu to world position and imu to world roration
              * R_cam_to_world = R_imu_to_world * R_cam_to_imu
              * t_cam_to_world = t_imu_to_world + t_cam_to_imu_under_world_coordinate
              *                = t_imu_to_world + R_imu_to_world*t_cam_to_imu
@@ -352,12 +385,22 @@ void FeatureManager::removeOutlier()
 }
 
 // I think this function may be invoked when we need to marginalize the old frame in the window
+/**
+ * for every FeaturePerId object in list feature
+ *    1. if the start_frame of the frame is not 0, substract 1 from start_frame
+ *    2. else(start_frame of the iterator equals 0)
+ *       2.1 get the point coordinate from feature_per_frame[0]
+ *       2.2 remove feature_per_frame[0] from feature_per_frame
+ *       2.3 if feature_per_frame.size() < 2, erase this feature from list feature
+ *       2.4 transform the point coordinate from marg coordinate to new coordinate, get z value of the transformd point,
+ *           if the z is bigger than 0, assign estimated_depth using the transformd z value; else assign estimated_depth using the INIT_DEPTH
+ */
 void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3d marg_P, Eigen::Matrix3d new_R, Eigen::Vector3d new_P)
 {
     for (auto it = feature.begin(), it_next = feature.begin();
          it != feature.end(); it = it_next)// for every feature in the list feature
     {
-        it_next++;
+        it_next++;// maybe it will be removed from list feature, so just backup the next iterator in advance
 
         if (it->start_frame != 0)// if the start_frame is not the first frame
             it->start_frame--;
@@ -402,6 +445,12 @@ void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3
     }
 }
 
+/**
+ * for every FramePerId object in list feature
+ *    1. if start_frame do not equal 0, substract 1 from start_frame
+ *    2. else(start_frame equal 0), erase first element from feature_per_frame, if it->feature_per_frame.size() equals 
+ *       0, remove this feature from list feature
+ */
 void FeatureManager::removeBack()// I think here back means the oldest feature
 {
     for (auto it = feature.begin(), it_next = feature.begin();

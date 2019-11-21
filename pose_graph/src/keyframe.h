@@ -13,7 +13,7 @@
 #include "ThirdParty/DBoW/DBoW2.h"
 #include "ThirdParty/DVision/DVision.h"
 
-#define MIN_LOOP_NUM 25
+#define MIN_LOOP_NUM 25 // the minimal number of pairs of matched points we use to verify whether the two frames can make a loop
 
 using namespace Eigen;
 using namespace std;
@@ -23,6 +23,7 @@ using namespace DVision;
 class BriefExtractor
 {
 public:
+  // the operator() just invoke the compute() function of class DVISION::BRIEF.  Returns the BRIEF descriptors of the given keypoints in the given image
   virtual void operator()(const cv::Mat &im, vector<cv::KeyPoint> &keys, vector<BRIEF::bitset> &descriptors) const;
   BriefExtractor(const std::string &pattern_file);
 
@@ -32,9 +33,11 @@ public:
 class KeyFrame
 {
 public:
+	// this is used for creating keyframe online
 	KeyFrame(double _time_stamp, int _index, Vector3d &_vio_T_w_i, Matrix3d &_vio_R_w_i, cv::Mat &_image,
 			 vector<cv::Point3f> &_point_3d, vector<cv::Point2f> &_point_2d_uv, vector<cv::Point2f> &_point_2d_normal, 
 			 vector<double> &_point_id, int _sequence);
+	// this is used for loading previous keyframe
 	KeyFrame(double _time_stamp, int _index, Vector3d &_vio_T_w_i, Matrix3d &_vio_R_w_i, Vector3d &_T_w_i, Matrix3d &_R_w_i,
 			 cv::Mat &_image, int _loop_index, Eigen::Matrix<double, 8, 1 > &_loop_info,
 			 vector<cv::KeyPoint> &_keypoints, vector<cv::KeyPoint> &_keypoints_norm, vector<BRIEF::bitset> &_brief_descriptors);
@@ -43,7 +46,7 @@ public:
 	void computeBRIEFPoint();
 	//void extractBrief();
 	int HammingDis(const BRIEF::bitset &a, const BRIEF::bitset &b);
-	bool searchInAera(const BRIEF::bitset window_descriptor,
+	bool searchInArea(const BRIEF::bitset window_descriptor,
 	                  const std::vector<BRIEF::bitset> &descriptors_old,
 	                  const std::vector<cv::KeyPoint> &keypoints_old,
 	                  const std::vector<cv::KeyPoint> &keypoints_old_norm,
@@ -95,10 +98,11 @@ public:
 	vector<BRIEF::bitset> brief_descriptors;
 	vector<BRIEF::bitset> window_brief_descriptors;
 	bool has_fast_point;
-	int sequence;
+	int sequence;// if the time interval of one frame and the frame received after it is big, we think the two frames are in different sequence
+	// so I think sequence here mean frame clusters
 
 	bool has_loop;
 	int loop_index;
-	Eigen::Matrix<double, 8, 1 > loop_info;
+	Eigen::Matrix<double, 8, 1 > loop_info;// the loop_info contains 3 demension relative_t, 4 demension relative_q and a scalar relative_yaw
 };
 

@@ -87,6 +87,7 @@ int DUtils::Random::UnrepeatedRandomizer::get()
   int k = DUtils::Random::RandomInt(0, m_values.size()-1);
   int ret = m_values[k];
   m_values[k] = m_values.back();
+  // assign the k th element in m_values using the last element in m_values, then pop_back m_values, so the k th element is removed from the vector 
   m_values.pop_back();
   
   return ret;

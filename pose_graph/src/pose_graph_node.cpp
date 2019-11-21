@@ -66,6 +66,12 @@ CameraPoseVisualization cameraposevisual(1, 0, 0, 1);
 Eigen::Vector3d last_t(-100, -100, -100);
 double last_image_time = -1;
 
+/**
+ * 1. add 1 to sequence
+ * 2. if sequence is bigger than 5, ROS_BREAK
+ * 3. reset posegraph.posegraph_visualization and call publish() function of object posegraph
+ * 4. pop the queues image_buf, point_buf, pose_buf, odometry_buf
+ */
 void new_sequence()
 {
     printf("new sequence\n");
@@ -90,6 +96,12 @@ void new_sequence()
     m_buf.unlock();
 }
 
+/**
+ * 1. if !LOOP_CLOSURE, return from this function
+ * 2. push the input image_msg to image_buf
+ * 3. if the time interval between two frames is bigger than 1 or current time is smaller than last time, call function new_sequence
+ * 4. assign last_image_time using image_msg->header.stamp.toSec()
+ */
 void image_callback(const sensor_msgs::ImageConstPtr &image_msg)
 {
     //ROS_INFO("image_callback!");
@@ -111,6 +123,10 @@ void image_callback(const sensor_msgs::ImageConstPtr &image_msg)
     last_image_time = image_msg->header.stamp.toSec();
 }
 
+/**
+ * 1. if !LOOP_CLOSURE, return from this function
+ * 2. push the input point_msg to point_buf 
+ */
 void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
 {
     //ROS_INFO("point_callback!");
@@ -131,6 +147,10 @@ void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
     */
 }
 
+/**
+ * 1. if !LOOP_CLOSURE, return from this function
+ * 2. push the input pose_msg to pose_buf 
+ */
 void pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
     //ROS_INFO("pose_callback!");
@@ -150,6 +170,12 @@ void pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     */
 }
 
+/**
+ * if VISUALIZE_IMU_FORWARD
+ * 1. transform the pose in msg using w_r_vio, w_t_vio and r_drift, t_drift
+ * 2. use qic and tic to transform the pose from imu coordinate to cam coordiante
+ * 3. add cam pose to cameraposevisual and publish
+ */
 void imu_forward_callback(const nav_msgs::Odometry::ConstPtr &forward_msg)
 {
     if (VISUALIZE_IMU_FORWARD)
@@ -161,6 +187,7 @@ void imu_forward_callback(const nav_msgs::Odometry::ConstPtr &forward_msg)
         vio_q.y() = forward_msg->pose.pose.orientation.y;
         vio_q.z() = forward_msg->pose.pose.orientation.z;
 
+        // w_t_vio and w_r_vio represents transform between world frame( base sequence or first sequence) and current sequence frame
         vio_t = posegraph.w_r_vio * vio_t + posegraph.w_t_vio;
         vio_q = posegraph.w_r_vio *  vio_q;
 
@@ -177,6 +204,10 @@ void imu_forward_callback(const nav_msgs::Odometry::ConstPtr &forward_msg)
         cameraposevisual.publish_by(pub_camera_pose_visual, forward_msg->header);
     }
 }
+
+/**
+ * 1. use the input to construct a loop info, then update the keyframe loop
+ */
 void relo_relative_pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
     Vector3d relative_t = Vector3d(pose_msg->pose.pose.position.x,
@@ -198,6 +229,14 @@ void relo_relative_pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 
 }
 
+/**
+ * 1. get vio pose from the input msg pose_msg, update the vio pose using w_r_vio, w_t_vio and r_drift, t_drift
+ * 2. use tic and ric to transform the updated vio pose and get vio_t_cam, vio_q_cam
+ * 3. if !VISUALIZE_IMU_FORWARD, add vio_t_cam and vio_q_cam to cameraposevisual and publish
+ * 4. push vio_t_cam to odometry_buf and make sure the size of odometry_buf can't exceed 10
+ * 5. push every element in odometry_buf to visualization_msgs::Marker.points and publish
+ * 6. if !LOOP_CLOSURE, publish vio_t
+ */
 void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
     //ROS_INFO("vio_callback!");
@@ -278,6 +317,7 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     }
 }
 
+// get tic and ric from the input message
 void extrinsic_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
     m_process.lock();
@@ -291,6 +331,10 @@ void extrinsic_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     m_process.unlock();
 }
 
+/**
+ * 1. if !LOOP_CLOSURE, return
+ * 2. use frame index and the information get from the messages to construct keyframe, then add the constructed keyframe to pose graph
+ */
 void process()
 {
     if (!LOOP_CLOSURE)
@@ -303,34 +347,45 @@ void process()
 
         // find out the messages with same time stamp
         m_buf.lock();
+        /**
+         * queue<sensor_msgs::ImageConstPtr> image_buf;
+         * queue<sensor_msgs::PointCloudConstPtr> point_buf;
+         * queue<nav_msgs::Odometry::ConstPtr> pose_buf; 
+         */
         if(!image_buf.empty() && !point_buf.empty() && !pose_buf.empty())
         {
+            // if the first msg time in pose_buf is in front of the first msg time in image_buf, pop pose_buf
             if (image_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
             {
                 pose_buf.pop();
                 printf("throw pose at beginning\n");
             }
+            // else if the first msg time in point_buf is in front of the first msg time in image_buf, pop point_buf
             else if (image_buf.front()->header.stamp.toSec() > point_buf.front()->header.stamp.toSec())
             {
                 point_buf.pop();
                 printf("throw point at beginning\n");
             }
+            // else if the first msg time in pose_buf is in front of both the last msg time in image_buf and the last msg time in point_buf
             else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() 
                 && point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
             {
-                pose_msg = pose_buf.front();
-                pose_buf.pop();
-                while (!pose_buf.empty())
+                pose_msg = pose_buf.front(); // get the first msg in pose_buf
+                pose_buf.pop(); // pop all the elements in pose_buf
+                while (!pose_buf.empty())// I just can't figure it out why must pop all the elements in pose_buf
                     pose_buf.pop();
+
+                // pop all the elements in image_buf who's in front of the pose_msg
                 while (image_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
                     image_buf.pop();
-                image_msg = image_buf.front();
-                image_buf.pop();
+                image_msg = image_buf.front();// get the first msg in image_buf
+                image_buf.pop();// pop image_buf
 
+                // pop all the elements in point_buf who's in front of the pose_msg
                 while (point_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
                     point_buf.pop();
-                point_msg = point_buf.front();
-                point_buf.pop();
+                point_msg = point_buf.front();// get the first msg in point_buf
+                point_buf.pop();// pop point_buf
             }
         }
         m_buf.unlock();
@@ -341,13 +396,13 @@ void process()
             //printf(" point time %f \n", point_msg->header.stamp.toSec());
             //printf(" image time %f \n", image_msg->header.stamp.toSec());
             // skip fisrt few
-            if (skip_first_cnt < SKIP_FIRST_CNT)
+            if (skip_first_cnt < SKIP_FIRST_CNT) // #define SKIP_FIRST_CNT 10
             {
                 skip_first_cnt++;
                 continue;
             }
 
-            if (skip_cnt < SKIP_CNT)
+            if (skip_cnt < SKIP_CNT)// if SKIP_CNT is set, this function will process once per SKIP_CNT times
             {
                 skip_cnt++;
                 continue;
@@ -373,8 +428,8 @@ void process()
             else
                 ptr = cv_bridge::toCvCopy(image_msg, sensor_msgs::image_encodings::MONO8);
             
-            cv::Mat image = ptr->image;
-            // build keyframe
+            cv::Mat image = ptr->image; // get image from image_msg
+            // build keyframe       get T and R from pose_msg
             Vector3d T = Vector3d(pose_msg->pose.pose.position.x,
                                   pose_msg->pose.pose.position.y,
                                   pose_msg->pose.pose.position.z);
@@ -382,13 +437,15 @@ void process()
                                      pose_msg->pose.pose.orientation.x,
                                      pose_msg->pose.pose.orientation.y,
                                      pose_msg->pose.pose.orientation.z).toRotationMatrix();
-            if((T - last_t).norm() > SKIP_DIS)
+            if((T - last_t).norm() > SKIP_DIS) // if distance between T got from the pose_msg and last_t is bigger than SKIP_DIS
             {
                 vector<cv::Point3f> point_3d; 
                 vector<cv::Point2f> point_2d_uv; 
                 vector<cv::Point2f> point_2d_normal;
                 vector<double> point_id;
 
+                /* for every keypoint in the point_msg, get 3d coordinate, 2d normal coordinate, 2d uv coordinate and point index from the message
+                   and push them independently to point_3d, point_2d_normal, point_2d_uv, point_id*/
                 for (unsigned int i = 0; i < point_msg->points.size(); i++)
                 {
                     cv::Point3f p_3d;
@@ -411,14 +468,15 @@ void process()
                     //printf("u %f, v %f \n", p_2d_uv.x, p_2d_uv.y);
                 }
 
+                // use frame index and the information get from the messages to construct keyframe
                 KeyFrame* keyframe = new KeyFrame(pose_msg->header.stamp.toSec(), frame_index, T, R, image,
                                    point_3d, point_2d_uv, point_2d_normal, point_id, sequence);   
                 m_process.lock();
-                start_flag = 1;
-                posegraph.addKeyFrame(keyframe, 1);
+                start_flag = 1; // set start_flag to 1
+                posegraph.addKeyFrame(keyframe, 1); // add keyframe to the pose graph
                 m_process.unlock();
-                frame_index++;
-                last_t = T;
+                frame_index++; // add 1 to frame_index
+                last_t = T; // assign last_t using T
             }
         }
 
@@ -427,6 +485,11 @@ void process()
     }
 }
 
+/**
+ * 1. if !LOOP_CLOSURE, return 
+ * 2. if getchar() gets 's', save posegraph and ros::shutdown()
+ * 3. if getchar() gets 'n', call new_sequence()
+ */
 void command()
 {
     if (!LOOP_CLOSURE)
@@ -451,6 +514,9 @@ void command()
     }
 }
 
+/**
+ * get params, subscribe topic and process
+ */
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "pose_graph");

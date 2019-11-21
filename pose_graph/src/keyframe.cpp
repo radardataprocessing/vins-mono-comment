@@ -1,5 +1,9 @@
 #include "keyframe.h"
 
+/**
+ * if the corresponding element in status is true, keep the element in vector v; else remove the element in v
+ * I think this function is tricky because it doesn't need some extra space to do this  
+ */
 template <typename Derived>
 static void reduceVector(vector<Derived> &v, vector<uchar> status)
 {
@@ -11,6 +15,12 @@ static void reduceVector(vector<Derived> &v, vector<uchar> status)
 }
 
 // create keyframe online
+/**
+ * 1. use the input and some default values to assign the data members of the class
+ * 2. push back every element in point_2d_uv to the vector window_keypoints, then, for window_keypoints in image, compute window_brief_descriptors
+ * 3. detect keypoints on the image, compute brief descriptors of the detected keypoints, finally undistort the detected keypoints and push them to 
+ *    keypoints_norm
+ */
 KeyFrame::KeyFrame(double _time_stamp, int _index, Vector3d &_vio_T_w_i, Matrix3d &_vio_R_w_i, cv::Mat &_image,
 		           vector<cv::Point3f> &_point_3d, vector<cv::Point2f> &_point_2d_uv, vector<cv::Point2f> &_point_2d_norm,
 		           vector<double> &_point_id, int _sequence)
@@ -34,13 +44,16 @@ KeyFrame::KeyFrame(double _time_stamp, int _index, Vector3d &_vio_T_w_i, Matrix3
 	has_fast_point = false;
 	loop_info << 0, 0, 0, 0, 0, 0, 0, 0;
 	sequence = _sequence;
+	// push back every element in point_2d_uv to the vector window_keypoints, then, for window_keypoints in image, compute window_brief_descriptors
 	computeWindowBRIEFPoint();
+	// at first detect keypoints on the image, then compute brief descriptors of the detected keypoints, finally undistort the detected keypoints and push them to keypoints_norm
 	computeBRIEFPoint();
 	if(!DEBUG_IMAGE)
 		image.release();
 }
 
 // load previous keyframe
+// use the input and some default values to assign the data members of the class
 KeyFrame::KeyFrame(double _time_stamp, int _index, Vector3d &_vio_T_w_i, Matrix3d &_vio_R_w_i, Vector3d &_T_w_i, Matrix3d &_R_w_i,
 					cv::Mat &_image, int _loop_index, Eigen::Matrix<double, 8, 1 > &_loop_info,
 					vector<cv::KeyPoint> &_keypoints, vector<cv::KeyPoint> &_keypoints_norm, vector<BRIEF::bitset> &_brief_descriptors)
@@ -53,7 +66,7 @@ KeyFrame::KeyFrame(double _time_stamp, int _index, Vector3d &_vio_T_w_i, Matrix3
 	vio_R_w_i = _R_w_i;
 	T_w_i = _T_w_i;
 	R_w_i = _R_w_i;
-	if (DEBUG_IMAGE)
+	if (DEBUG_IMAGE)// if DEBUG_IMAGE is defined, create a thumbnail for the image
 	{
 		image = _image.clone();
 		cv::resize(image, thumbnail, cv::Size(80, 60));
@@ -71,7 +84,9 @@ KeyFrame::KeyFrame(double _time_stamp, int _index, Vector3d &_vio_T_w_i, Matrix3
 	brief_descriptors = _brief_descriptors;
 }
 
-
+/**
+ * push back every element in point_2d_uv to the vector window_keypoints, then, for window_keypoints in image, compute window_brief_descriptors
+ */
 void KeyFrame::computeWindowBRIEFPoint()
 {
 	BriefExtractor extractor(BRIEF_PATTERN_FILE.c_str());
@@ -84,11 +99,21 @@ void KeyFrame::computeWindowBRIEFPoint()
 	extractor(image, window_keypoints, window_brief_descriptors);
 }
 
+/**
+ * at first detect keypoints on the image, then compute brief descriptors of the detected keypoints, finally undistort the detected keypoints and push them to 
+ * vector keypoints_norm
+ */
 void KeyFrame::computeBRIEFPoint()
 {
 	BriefExtractor extractor(BRIEF_PATTERN_FILE.c_str());
 	const int fast_th = 20; // corner detector response threshold
 	if(1)
+		/**
+		 * the first param image is the gray scale image where keypoints are detected
+		 * keypoints is the keypoints(corners) detected on the image
+		 * fast_th is the threshold on difference between intensity of the central pixel and pixels of a circle around the pixel
+		 * true means non-maximum suppression is applied to the detected keypoints(corners)
+		 */
 		cv::FAST(image, keypoints, fast_th, true);
 	else
 	{
@@ -105,6 +130,7 @@ void KeyFrame::computeBRIEFPoint()
 	for (int i = 0; i < (int)keypoints.size(); i++)
 	{
 		Eigen::Vector3d tmp_p;
+		// lift a point from the image plane to its projective ray
 		m_camera->liftProjective(Eigen::Vector2d(keypoints[i].pt.x, keypoints[i].pt.y), tmp_p);
 		cv::KeyPoint tmp_norm;
 		tmp_norm.pt = cv::Point2f(tmp_p.x()/tmp_p.z(), tmp_p.y()/tmp_p.z());
@@ -112,13 +138,22 @@ void KeyFrame::computeBRIEFPoint()
 	}
 }
 
+// the operator() just invoke the compute() function of class DVISION::BRIEF.  Returns the BRIEF descriptors of the given keypoints in the given image
 void BriefExtractor::operator() (const cv::Mat &im, vector<cv::KeyPoint> &keys, vector<BRIEF::bitset> &descriptors) const
 {
   m_brief.compute(im, keys, descriptors);
 }
 
-
-bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
+/**
+ * breif: 
+ * find keypoint who can match window_descriptor among an old frame 
+ * in detail:
+ * 1. amont all the elements in descriptors_old, find the index of the element who has the smallest distance with window_descriptor
+ * 2. if best index don't equal -1 and best distance of the two descriptors is less than 80, use the index to get element in keypoints as best_match and use
+ *    the index to get element in keypoints_old_norm as best_match_norm, then return true
+ * 3. else just return false
+ */
+bool KeyFrame::searchInArea(const BRIEF::bitset window_descriptor,
                             const std::vector<BRIEF::bitset> &descriptors_old,
                             const std::vector<cv::KeyPoint> &keypoints_old,
                             const std::vector<cv::KeyPoint> &keypoints_old_norm,
@@ -128,9 +163,13 @@ bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
     cv::Point2f best_pt;
     int bestDist = 128;
     int bestIndex = -1;
-    for(int i = 0; i < (int)descriptors_old.size(); i++)
+	// amont all the elements in descriptors_old, find the index of the element who has the smallest distance with window_descriptor, 
+	// if best index don't equal -1 and best distance of the two descriptors is less than 80, use the index to get element in keypoints 
+	// as best_match and use the index to get element in keypoints_old_norm as best_match_norm, then return true
+	// else return false
+    for(int i = 0; i < (int)descriptors_old.size(); i++)// for every descriptor in descriptors_old
     {
-
+		// compute the HammingDis for the ith 
         int dis = HammingDis(window_descriptor, descriptors_old[i]);
         if(dis < bestDist)
         {
@@ -149,6 +188,11 @@ bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
       return false;
 }
 
+/** 
+ *  for every descriptor in window_brief_descriptors, find its match keypoint among descriptors old
+ *  if the match descriptor is found, set the corresponding status to be 1, else set -1
+ *  push back the best_match and best_match_norm from the old frame to matched_2d_old and matched_2d_old_norm
+ */
 void KeyFrame::searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
 								std::vector<cv::Point2f> &matched_2d_old_norm,
                                 std::vector<uchar> &status,
@@ -160,7 +204,7 @@ void KeyFrame::searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
     {
         cv::Point2f pt(0.f, 0.f);
         cv::Point2f pt_norm(0.f, 0.f);
-        if (searchInAera(window_brief_descriptors[i], descriptors_old, keypoints_old, keypoints_old_norm, pt, pt_norm))
+        if (searchInArea(window_brief_descriptors[i], descriptors_old, keypoints_old, keypoints_old_norm, pt, pt_norm))
           status.push_back(1);
         else
           status.push_back(0);
@@ -170,7 +214,9 @@ void KeyFrame::searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
 
 }
 
-
+/**
+ * if the number of corresponding points of two frames is no less than 8, undistort the points and compute fundamental mat using the undistorted points
+ */
 void KeyFrame::FundmantalMatrixRANSAC(const std::vector<cv::Point2f> &matched_2d_cur_norm,
                                       const std::vector<cv::Point2f> &matched_2d_old_norm,
                                       vector<uchar> &status)
@@ -197,6 +243,9 @@ void KeyFrame::FundmantalMatrixRANSAC(const std::vector<cv::Point2f> &matched_2d
     }
 }
 
+/**
+ *  use the vio rotation and translation as the initial guess for pnp solver, solve pnp problem, assign PnP_R_old and PnP_T_old using the pnp result
+ */
 void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
                          const std::vector<cv::Point3f> &matched_3d,
                          std::vector<uchar> &status,
@@ -209,6 +258,7 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
     cv::Mat K = (cv::Mat_<double>(3, 3) << 1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0);
     Matrix3d R_inital;
     Vector3d P_inital;
+	// use the vio rotation and translation to compute the rotation and translation of camera in the world coordinate
     Matrix3d R_w_c = origin_vio_R * qic;
     Vector3d T_w_c = origin_vio_T + origin_vio_R * tic;
 
@@ -222,7 +272,17 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
     cv::Mat inliers;
     TicToc t_pnp_ransac;
 
-    if (CV_MAJOR_VERSION < 3)
+    /**
+	 * matched_3d is the array of object points in the object coordinate space
+	 * matched_2d_old_norm is the array of corresponding image points
+	 * K is the input camera matrix
+	 * D is the input vector of distortion coefficients
+	 * rvec is the output rotation vector(not a rotation matrix but a rotation vector)
+	 * t is the output translation vector
+	 * true means use the provided rvec and t values as initial guess
+	 * inliers is the output vector that contain indices of inliers in matched_3d and matched_2d_old_norm
+	 */
+	if (CV_MAJOR_VERSION < 3)
         solvePnPRansac(matched_3d, matched_2d_old_norm, K, D, rvec, t, true, 100, 10.0 / 460.0, 100, inliers);
     else
     {
@@ -241,6 +301,7 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
         int n = inliers.at<int>(i);
         status[n] = 1;
     }
+	// set status tobe 1 for the inliers of pnp ransac 
 
     cv::Rodrigues(rvec, r);
     Matrix3d R_pnp, R_w_c_old;
@@ -249,13 +310,33 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
     Vector3d T_pnp, T_w_c_old;
     cv::cv2eigen(t, T_pnp);
     T_w_c_old = R_w_c_old * (-T_pnp);
+	// 
 
-    PnP_R_old = R_w_c_old * qic.transpose();
-    PnP_T_old = T_w_c_old - PnP_R_old * tic;
+    /**
+	 * R_imu_to_world = R_camera_to_world * R_imu_to_camera
+	 * T_imu_under_world_coordinate = T_camera_under_world_coordinate + T_imu_to_camera_under_world_coordinate
+	 *                              = T_camera_under_world_coordinate - T_camera_to_imu_under_world_coordinate
+	 *                              = T_camera_under_world_coordinate - R_imu_to_world * T_camera_to_imu_under_imu_coordinate
+	 */
+	PnP_R_old = R_w_c_old * qic.transpose();// use the pnp result to compute the rotation matrix from imu to world
+    PnP_T_old = T_w_c_old - PnP_R_old * tic;// use the pnp result to compute the translation vector from imu to world
 
 }
 
-
+/**
+ * brief:
+ * findout whether old_kf and the current frame can make a loop
+ * 
+ * in detail:
+ * 1. for every descriptor in window_brief_descriptors, find its match keypoint among old_kf->brief_descriptors
+ * 2. if we can find more than MIN_LOOP_NUM pairs of match for the current frame and the input old_kf in the above process， use the vio
+ *    rotation and translation as the initial guess for pnp solver, solve pnp problem, assign PnP_R_old and PnP_T_old using the pnp result
+ * 3. after conduct pnp, if we can find more than MIN_LOOP_NUM inliers， compute the relative pose of the imu of the two frames using the 
+ *    pnp results obtained above。 if the absolute relative_yaw is less than 30 and the norm of relative_t is less than 20， assign 
+ *    has_loop using true, assign loop_index using index of old_kf, assign loop info using relative_t, relative_q and relative_yaw。
+ *    If FAST_RELOCALIZATION is true, for all points in matched_2d_old_norm, use the point as x, y and use the point id of current frame
+ *    as z of the pointcloud, publish the pose of old_kf and the index of current frame along with the pointcloud
+ */
 bool KeyFrame::findConnection(KeyFrame* old_kf)
 {
 	TicToc tmp_t;
@@ -298,7 +379,13 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    }
 	#endif
 	//printf("search by des\n");
+	/**
+	 * for every descriptor in window_brief_descriptors, find its match keypoint among old_kf->brief_descriptors, if the match descriptor is 
+	 * found, set the corresponding status to be 1, else set -1, push back the best_match and best_match_norm from the old_kf->keypoints and 
+	 * old_kf->keypoints_norm to matched_2d_old and matched_2d_old_norm 
+	 */
 	searchByBRIEFDes(matched_2d_old, matched_2d_old_norm, status, old_kf->brief_descriptors, old_kf->keypoints, old_kf->keypoints_norm);
+	// reduce the current and old vectors using the find match status
 	reduceVector(matched_2d_cur, status);
 	reduceVector(matched_2d_old, status);
 	reduceVector(matched_2d_cur_norm, status);
@@ -403,10 +490,13 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	Eigen::Vector3d relative_t;
 	Quaterniond relative_q;
 	double relative_yaw;
-	if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)
+	if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)// if we can find more than MIN_LOOP_NUM pairs of match for the current frame and the input old_kf
 	{
 		status.clear();
+		// use the vio rotation and translation as the initial guess for pnp solver, solve pnp problem, assign PnP_R_old and PnP_T_old using the pnp result
+		// here, use the vio pose of current frame as the initial pose guess for the old_kf
 	    PnPRANSAC(matched_2d_old_norm, matched_3d, status, PnP_T_old, PnP_R_old);
+		// use the pnp status to reduce current annd old vectors
 	    reduceVector(matched_2d_cur, status);
 	    reduceVector(matched_2d_old, status);
 	    reduceVector(matched_2d_cur_norm, status);
@@ -468,18 +558,24 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	        }
 	    #endif
 	}
-
+	// after conduct pnp, if we can find more than MIN_LOOP_NUM inliers
 	if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)
 	{
+		/**
+		 * PnP_R_old represents the rotation from imu to world 
+		 * compute the relative pose of the imu of the two frames using the pnp results obtained above
+		 */
 	    relative_t = PnP_R_old.transpose() * (origin_vio_T - PnP_T_old);
 	    relative_q = PnP_R_old.transpose() * origin_vio_R;
+		//relative_yaw is in degree 
 	    relative_yaw = Utility::normalizeAngle(Utility::R2ypr(origin_vio_R).x() - Utility::R2ypr(PnP_R_old).x());
 	    //printf("PNP relative\n");
 	    //cout << "pnp relative_t " << relative_t.transpose() << endl;
 	    //cout << "pnp relative_yaw " << relative_yaw << endl;
+		// if the absolute relative_yaw is less than 30 and the norm of relative_t is less than 20
 	    if (abs(relative_yaw) < 30.0 && relative_t.norm() < 20.0)
 	    {
-
+			// assign has_loop using true, assign loop_index using index of old_kf, assign loop info using relative_t, relative_q and relative_yaw
 	    	has_loop = true;
 	    	loop_index = old_kf->index;
 	    	loop_info << relative_t.x(), relative_t.y(), relative_t.z(),
@@ -489,14 +585,16 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    	{
 			    sensor_msgs::PointCloud msg_match_points;
 			    msg_match_points.header.stamp = ros::Time(time_stamp);
+				// for all points in matched_2d_old_norm, use the point as x, y and use the point id of current frame as z of the pointcloud
 			    for (int i = 0; i < (int)matched_2d_old_norm.size(); i++)
 			    {
 		            geometry_msgs::Point32 p;
 		            p.x = matched_2d_old_norm[i].x;
 		            p.y = matched_2d_old_norm[i].y;
-		            p.z = matched_id[i];
+		            p.z = matched_id[i];// the point id of the current frame
 		            msg_match_points.points.push_back(p);
 			    }
+				// publish the pose of old_kf and the index of current frame along with the pointcloud
 			    Eigen::Vector3d T = old_kf->T_w_i; 
 			    Eigen::Matrix3d R = old_kf->R_w_i;
 			    Quaterniond Q(R);
@@ -519,7 +617,7 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	return false;
 }
 
-
+// compute the xor of the two descriptors, count the bits of the xor bitset as the distance
 int KeyFrame::HammingDis(const BRIEF::bitset &a, const BRIEF::bitset &b)
 {
     BRIEF::bitset xor_of_bitset = a ^ b;
@@ -553,21 +651,25 @@ void KeyFrame::updateVioPose(const Eigen::Vector3d &_T_w_i, const Eigen::Matrix3
 	R_w_i = vio_R_w_i;
 }
 
+// get the translation part of loop_info
 Eigen::Vector3d KeyFrame::getLoopRelativeT()
 {
     return Eigen::Vector3d(loop_info(0), loop_info(1), loop_info(2));
 }
 
+//get the quaternion part of loop_info
 Eigen::Quaterniond KeyFrame::getLoopRelativeQ()
 {
     return Eigen::Quaterniond(loop_info(3), loop_info(4), loop_info(5), loop_info(6));
 }
 
+// get the yawpart of loop_info
 double KeyFrame::getLoopRelativeYaw()
 {
     return loop_info(7);
 }
 
+// if the input _loop_info has small yaw and small transform, assign loop_info of this keyframe using input parameter _loop_info
 void KeyFrame::updateLoop(Eigen::Matrix<double, 8, 1 > &_loop_info)
 {
 	if (abs(_loop_info(7)) < 30.0 && Vector3d(_loop_info(0), _loop_info(1), _loop_info(2)).norm() < 20.0)
@@ -577,6 +679,10 @@ void KeyFrame::updateLoop(Eigen::Matrix<double, 8, 1 > &_loop_info)
 	}
 }
 
+/**
+ * the param pattern_file is the file that stores the pattern we use to build the vocabulary. Load pattern from the file so
+ * the descriptors will compatible with the predefined vocabulary 
+ */
 BriefExtractor::BriefExtractor(const std::string &pattern_file)
 {
   // The DVision::BRIEF extractor computes a random pattern by default when

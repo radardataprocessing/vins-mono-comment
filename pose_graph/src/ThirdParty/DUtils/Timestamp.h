@@ -44,7 +44,7 @@ public:
   /**
    * Says if the timestamp is "empty": seconds and usecs are both 0, as 
    * when initiated with the ZERO flag
-   * @return true iif secs == usecs == 0
+   * @return true if secs == usecs == 0
    */
   bool empty() const;
 
