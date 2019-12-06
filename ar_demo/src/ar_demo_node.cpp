@@ -131,6 +131,18 @@ void cube_generate(visualization_msgs::Marker &marker, Vector3d &origin, int id)
     p.z = origin.z();
     marker.points.push_back(p);
     marker.colors.push_back(line_color_r);
+    /**
+     *       4---------------6
+     *      /|              /|
+     *     / |             / |
+     *    /  |            /  |
+     *   5---_-----------7   |
+     *   |   0-----------|---2
+     *   |  /            |  /
+     *   | /             | / 
+     *   |/              |/  
+     *   1---------------3
+     */
     Cube_corner[id].clear();
     Cube_corner[id].push_back(Vector3d(origin.x() - box_length / 2, origin.y() - box_length / 2, origin.z() - box_length / 2));
     Cube_corner[id].push_back(Vector3d(origin.x() + box_length / 2, origin.y() - box_length / 2, origin.z() - box_length / 2));
@@ -172,23 +184,23 @@ void project_object(Vector3d camera_p, Quaterniond camera_q)
         output_Axis[i].clear();
         Vector3d local_point;
         Vector2d local_uv;
-        local_point = camera_q.inverse() * (Axis[i] - camera_p);
-        m_camera->spaceToPlane(local_point, local_uv);
+        local_point = camera_q.inverse() * (Axis[i] - camera_p);// convert the point from world coordinate to camera coordinate
+        m_camera->spaceToPlane(local_point, local_uv);// project the point in camera coordinate to camera plane
 
-        if (local_point.z() > 0)
+        if (local_point.z() > 0)// if the 3D point in camera coordinate have positive z coordinate
             //&& 0 <= local_uv.x() && local_uv.x() <= COL - 1 && 0 <= local_uv.y() && local_uv.y() <= ROW -1)
         {
             output_Axis[i].push_back(Vector3d(local_uv.x(), local_uv.y(), 1));
 
-            local_point = camera_q.inverse() * (Axis[i] + Vector3d(1, 0, 0) - camera_p);
+            local_point = camera_q.inverse() * (Axis[i] + Vector3d(1, 0, 0) - camera_p);// the end point of x axis
             m_camera->spaceToPlane(local_point, local_uv);
             output_Axis[i].push_back(Vector3d(local_uv.x(), local_uv.y(), 1));
 
-            local_point = camera_q.inverse() * (Axis[i] + Vector3d(0, 1, 0) - camera_p);
+            local_point = camera_q.inverse() * (Axis[i] + Vector3d(0, 1, 0) - camera_p);// the end point of y axis 
             m_camera->spaceToPlane(local_point, local_uv);
             output_Axis[i].push_back(Vector3d(local_uv.x(), local_uv.y(), 1));
 
-            local_point = camera_q.inverse() * (Axis[i] + Vector3d(0, 0, 1) - camera_p);
+            local_point = camera_q.inverse() * (Axis[i] + Vector3d(0, 0, 1) - camera_p);// the end point of z axis
             m_camera->spaceToPlane(local_point, local_uv);
             output_Axis[i].push_back(Vector3d(local_uv.x(), local_uv.y(), 1));
 
@@ -201,19 +213,19 @@ void project_object(Vector3d camera_p, Quaterniond camera_q)
         output_corner_dis[i].clear();
         Vector3d local_point;
         Vector2d local_uv;
-        local_point = camera_q.inverse() * (Cube_center[i] - camera_p);
-        if (USE_UNDISTORED_IMG)
+        local_point = camera_q.inverse() * (Cube_center[i] - camera_p);// convert the point from world coordinate to camera coordinate
+        if (USE_UNDISTORED_IMG) // this means we are using the undistorted image
         {
             local_uv.x() = local_point(0) / local_point(2) * FOCAL_LENGTH + COL / 2;
             local_uv.y() = local_point(1) / local_point(2) * FOCAL_LENGTH + ROW / 2;
         }
-        else
+        else // this branch means we are using the camera model with distortion
             m_camera->spaceToPlane(local_point, local_uv);
         if (local_point.z() > box_length / 2)
            //&& 0 <= local_uv.x() && local_uv.x() <= COL - 1 && 0 <= local_uv.y() && local_uv.y() <= ROW -1)
         {
             Cube_center_depth[i] = local_point.z();
-            for (int j = 0; j < 8; j++)
+            for (int j = 0; j < 8; j++)// 8 here means 8 vertex of the cube
             {
                 local_point = camera_q.inverse() * (Cube_corner[i][j] - camera_p);
                 output_corner_dis[i].push_back(local_point.norm());
@@ -241,11 +253,14 @@ void project_object(Vector3d camera_p, Quaterniond camera_q)
     }   
 }
 
+/**
+ * draw axises and project cube to the plane
+ */
 void draw_object(cv::Mat &AR_image)
 {
-    for (int i = 0; i < axis_num; i++)
+    for (int i = 0; i < axis_num; i++) // for every axis in output_Axis, draw three axis of each coordinate
     {
-        if(output_Axis[i].empty())
+        if(output_Axis[i].empty())// vector<Vector3d> output_Axis[6]
             continue;
         cv::Point2d origin(output_Axis[i][0].x(), output_Axis[i][0].y());
         cv::Point2d axis_x(output_Axis[i][1].x(), output_Axis[i][1].y());
@@ -263,6 +278,7 @@ void draw_object(cv::Mat &AR_image)
         index[i] = i;
         //cout << "i " << i << " init depth" << Cube_center_depth[i] << endl;
     }
+    // use the cube center depth to sort the cubes from far to near
     for (int i = 0; i < cube_num; i++)
         for (int j = 0; j < cube_num - i - 1; j++)
         {
@@ -277,7 +293,7 @@ void draw_object(cv::Mat &AR_image)
             }
         }
 
-    for (int k = 0; k < cube_num; k++)
+    for (int k = 0; k < cube_num; k++)// for cubes from far to near
     {
         int i = index[k];
         //cout << "draw " << i << "depth " << Cube_center_depth[i] << endl;
@@ -297,6 +313,7 @@ void draw_object(cv::Mat &AR_image)
         int npts[1] = {4};
         float min_depth = 100000;
         int min_index = 5;
+        // i means the index of the cube, each output_corner_dis[i] stores the distance from vertex to camera
         for(int j= 0; j < (int)output_corner_dis[i].size(); j++)
         {
             if(output_corner_dis[i][j] < min_depth)
@@ -305,10 +322,32 @@ void draw_object(cv::Mat &AR_image)
                 min_index = j;
             }
         }
+        // find the vertex who is nearest to the camera
         
         cv::Point plain[1][4];
         const cv::Point* ppt[1] = {plain[0]};
         //first draw large depth plane
+        /**
+         *       4---------------6
+         *      /|              /|
+         *     / |             / |
+         *    /  |            /  |
+         *   5---------------7   |
+         *   |   0-----------|---2
+         *   |  /            |  /
+         *   | /             | / 
+         *   |/              |/  
+         *   1---------------3
+         * the cv::Point* object p stores the 8 points in the above cube in order
+         * point_group[0] stores the index of vertex on    left ,    rear    ,bottom      plane
+         * point_group[1] stores the index of vertex on    left ,    front   ,bottom      plane
+         * point_group[2] stores the index of vertex on    right,    rear    ,bottom      plane
+         * point_group[3] stores the index of vertex on    right,    front   ,bottom      plane
+         * point_group[4] stores the index of vertex on    left ,    rear    ,top         plane
+         * point_group[5] stores the index of vertex on    left ,    front   ,top         plane
+         * point_group[6] stores the index of vertex on    right,    rear    ,top         plane
+         * point_group[7] stores the index of vertex on    right,    front   ,top         plane
+         */
         int point_group[8][12] = {{0,1,5,4, 0,4,6,2, 0,1,3,2},
             {0,1,5,4, 1,5,7,3, 0,1,3,2},
             {2,3,7,6, 0,4,6,2, 0,1,3,2},
@@ -318,11 +357,12 @@ void draw_object(cv::Mat &AR_image)
             {2,3,7,6, 0,4,6,2, 4,5,7,6},
             {2,3,7,6, 1,5,7,3, 4,5,7,6}};
         
+        // p stores the projected vertex on the pixel coordinate
         plain[0][0] = p[point_group[min_index][4]];
         plain[0][1] = p[point_group[min_index][5]];
         plain[0][2] = p[point_group[min_index][6]];
         plain[0][3] = p[point_group[min_index][7]];
-        cv::fillPoly(AR_image, ppt, npts, 1, cv::Scalar(0, 200, 0));
+        cv::fillPoly(AR_image, ppt, npts, 1, cv::Scalar(0, 200, 0)); // fill an area bounded by one or more polygons
         
         plain[0][0] = p[point_group[min_index][0]];
         plain[0][1] = p[point_group[min_index][1]];
@@ -345,7 +385,7 @@ void draw_object(cv::Mat &AR_image)
         plain[0][2] = p[point_group[min_index][10]];
         plain[0][3] = p[point_group[min_index][11]];
         cv::fillPoly(AR_image, ppt, npts, 1, cv::Scalar(0, 0, 200));
-        delete p;
+        delete p; // cv::Point* p
     }
 }
 
@@ -368,32 +408,36 @@ void callback(const ImageConstPtr& img_msg, const nav_msgs::Odometry::ConstPtr p
 
    //test plane
    Vector3d cam_z(0, 0, -1);
-   Vector3d w_cam_z = camera_q * cam_z;
+   Vector3d w_cam_z = camera_q * cam_z;// convert the gravity direction from world coordinate to camera coordinate
    //cout << "angle " << acos(w_cam_z.dot(Vector3d(0, 0, 1))) * 180.0 / M_PI << endl;
+   // check whether the angle in degree of gravity and optical axis is less than 90 degree, if yes, assign look_ground using 1
    if (acos(w_cam_z.dot(Vector3d(0, 0, 1))) * 180.0 / M_PI < 90)
    {
         //ROS_WARN(" look down");
-        look_ground = 1;
+        look_ground = 1;// bool look_ground 
    }
    else
         look_ground = 0;
 
-   project_object(camera_p, camera_q);
+   project_object(camera_p, camera_q);// project axis and cube vertex to image plane
 
    cv_bridge::CvImagePtr bridge_ptr = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::MONO8);
    cv::Mat AR_image;
    AR_image = bridge_ptr->image.clone();
    cv::cvtColor(AR_image, AR_image, cv::COLOR_GRAY2RGB);
-   draw_object(AR_image);
+   draw_object(AR_image);// draw cube on the image of input image message
 
    sensor_msgs::ImagePtr AR_msg = cv_bridge::CvImage(img_msg->header, "bgr8", AR_image).toImageMsg();
    pub_ARimage.publish(AR_msg);
 
 }
+
+
 void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
 {
-    if (!look_ground)
+    if (!look_ground) // if look_ground is false, return from this function
         return;
+    // I think because look_ground here is true, so they can use z from the point cloud as height as a rough guess
     int height_range[30];
     double height_sum[30];
     for (int i = 0; i < 30; i++)
@@ -409,8 +453,8 @@ void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
         int index = (z + 2.0) / 0.1;
         if (0 <= index && index < 30)
         {
-            height_range[index]++;
-            height_sum[index] += z;
+            height_range[index]++; // check how many points are in this height range
+            height_sum[index] += z; // add up all the z values in this range
         }
         //cout << "point " << " z " << z << endl;
     }
@@ -424,11 +468,17 @@ void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
             max_index = i;
         }
     }
+    // adjacent ranges have adjacent z values
+    // figure out which range has most z values
     if (max_index == -1)
         return;
     int tmp_num = height_range[max_index - 1] + height_range[max_index] + height_range[max_index + 1];
+    // add up the total number of the z values in the max_index range and two ranges nearby
     double new_height = (height_sum[max_index - 1] + height_sum[max_index] + height_sum[max_index + 1]) / tmp_num;
+    // add up z values in the max_index range and two ranges nearby
+    // then compute the average z value of the 3 ranges
     //ROS_WARN("detect ground plain, height %f", new_height);
+    // if the points in adjacent range of the max_index are more than half in the point set, return from this function
     if (tmp_num < (int)point_msg->points.size() / 2)
     {
         //ROS_INFO("points not enough");
@@ -439,9 +489,11 @@ void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
     {
         Cube_center[i].z() = new_height + box_length / 2.0;
     }
-    add_object();
+    add_object();// generate axis and cube and then publish
 
 }
+
+// do not get image data until we have already get pose data
 void img_callback(const ImageConstPtr& img_msg)
 {
     if(pose_init)
@@ -451,6 +503,8 @@ void img_callback(const ImageConstPtr& img_msg)
     else
         return;
 }
+
+
 void pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
     if(!pose_init)
@@ -459,17 +513,19 @@ void pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
         return;
     }
 
-    if (img_buf.empty())
+    if (img_buf.empty())// queue<ImageConstPtr> img_buf
     {
         //ROS_WARN("image coming late");
         return;
     }
 
+    // remove those images in img_buf who is earlier than this pose message
     while (img_buf.front()->header.stamp < pose_msg->header.stamp && !img_buf.empty())
     {
         img_buf.pop();
     }
 
+    // after remove early image messages, use pose to project cubes on image plane
     if (!img_buf.empty())
     {
         callback(img_buf.front(), pose_msg);
@@ -508,6 +564,7 @@ int main( int argc, char** argv )
     Axis[4]= Vector3d(5, 10, -5);
     Axis[5] = Vector3d(0, 10, -1);
 
+    // initialize 3 cube centers
     Cube_center[0] = Vector3d(-2, 0, -1.2 + box_length / 2.0);
     //Cube_center[0] = Vector3d(0, 3, -1.2 + box_length / 2.0);
     Cube_center[1] = Vector3d(4, -2, -1.2 + box_length / 2.0);
@@ -532,7 +589,7 @@ int main( int argc, char** argv )
 
     ros::Rate r(100);
     ros::Duration(1).sleep();
-    add_object();
+    add_object();// publish axis and cube
     add_object();
     ros::spin();
 }

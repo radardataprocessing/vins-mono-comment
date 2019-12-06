@@ -3,7 +3,7 @@
 /*
  * it is not easy to write the special notation in a IDE, so just use * to represents the multiplication for quaternion
  * the objective function is that, the orientation between two frames should equals the pre-integration of imu
- * estimate a delta_bw who would minimum sum of all k two-norm(q_bk+1_to_c0.inverse*q_bk_to_c0*gamma_bk+1_to_bk)
+ * estimate a delta_bw who would minimize sum of all k two-norm(q_bk+1_to_c0.inverse*q_bk_to_c0*gamma_bk+1_to_bk)
  * use ~~ to express approximately equal to 
  * gamma_bk+1_to_bk ~~ gamma_bk+1_to_bk_pre_integration_estimate*[1 1/2*J_gamma_about_bw*delta_bw].transpose()
  * the minimum of the above mentioned value is the unit quaternion, so the objective function can be written to 
@@ -17,6 +17,19 @@
  *   =2*J_gamma_about_bw.transpose()*(gamma_bk+1_to_bk_pre_integration_estimat.inverse()*q_bk_to_c0.inverse()*q_bk+1_to_c0).imaginary
  * 
  */
+
+/**
+ * Eigen::LLT performs a LL^T Cholesky decomposition of a symmetric, positive definite matrix A such that A=LL^*=U^*U, where L is lower triangular
+ * While the Cholesky decomposition is particularly useful to solve selfadjoint problems like D^*Dx=b, for that purpose, we recommand the Cholesky
+ * decomposition without square root which is more stable and even faster.Nevertheless, this standard Cholesky decomposition remains useful in many 
+ * other situations like generalised eigen problems with hermitian matrices
+ * Cholesky decompositions are not rank-revealing. This LLT decomposition is only stable on positive definite matrices, use LDLT instead for the 
+ * semidefinite case.Also, do not use a Cholesky decomposition to determine whether a system of equations has a solution.  
+ */
+
+/**
+ * 
+ */
 void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
 {
     Matrix3d A;
@@ -28,7 +41,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     map<double, ImageFrame>::iterator frame_j;
     for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end(); frame_i++)
     {
-        frame_j = next(frame_i);// frame i is a frame in the map, frame j is frame i's adjacent frame
+        frame_j = next(frame_i);// frame i is a frame in the map, frame j is frame i's adjacent frame 
         MatrixXd tmp_A(3, 3);
         tmp_A.setZero();
         VectorXd tmp_b(3);
@@ -50,7 +63,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
         b += tmp_A.transpose() * tmp_b;
 
     }
-    delta_bg = A.ldlt().solve(b);
+    delta_bg = A.ldlt().solve(b); // the g in bg here means gyroscope
     ROS_WARN_STREAM("gyroscope bias initial calibration " << delta_bg.transpose());
 
     for (int i = 0; i <= WINDOW_SIZE; i++)
